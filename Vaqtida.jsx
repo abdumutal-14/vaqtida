@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Stethoscope, User, UserPlus, Pill, Bell, BellOff, Check, AlertTriangle,
   Trash2, Pencil, Plus, ArrowLeft, LogOut, Copy, X, ChevronRight, Clock,
-  Users, ClipboardList, CalendarClock, Info, ShieldAlert,
+  Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files,
 } from 'lucide-react';
 import { store, hasBackend } from './db.js';
 
@@ -712,13 +712,18 @@ function DoctorPatient({ code, onBack, onError, onDeletedPatient }) {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null); // med obj yoki 'new' yoki null
+  const [templates, setTemplates] = useState([]);
+  const [tplMode, setTplMode] = useState(null); // null | 'pick' | 'save'
+  const [tplTitle, setTplTitle] = useState('');
 
   const load = useCallback(async () => {
     try {
       const p = await store.get(`patient:${code}`, true);
       const r = (await store.get(`rx:${code}`, true)) || { medicines: [] };
+      const t = (await store.get('templates', true)) || [];
       setPatient(p);
       setRx(r);
+      setTemplates(t);
       setStats(await computeStats(code));
     } catch (e) {
       onError("Bemor ma'lumotini yuklab bo'lmadi.");
@@ -751,6 +756,44 @@ function DoctorPatient({ code, onBack, onError, onDeletedPatient }) {
   const deleteMed = async (id) => {
     if (!window.confirm('Bu dorini o\'chirasizmi?')) return;
     await saveRx((rx.medicines || []).filter((m) => m.id !== id));
+  };
+
+  /* --- Retsept shablonlari --- */
+  const stripMed = (m) => ({ name: m.name, dosage: m.dosage, times: m.times, durationDays: m.durationDays, instructions: m.instructions });
+
+  const applyTemplate = async (tpl) => {
+    const newMeds = (tpl.medicines || []).map((m) => ({ ...stripMed(m), id: uid(), startDate: todayStr() }));
+    if (!newMeds.length) return onError('Bu shablonda dori yo\'q.');
+    await saveRx([...(rx.medicines || []), ...newMeds]);
+    setTplMode(null);
+  };
+
+  const saveAsTemplate = async () => {
+    const title = tplTitle.trim();
+    if (!title) return onError('Shablon nomini kiriting.');
+    if (!(rx.medicines || []).length) return onError('Saqlash uchun retseptda kamida bitta dori bo\'lishi kerak.');
+    try {
+      const list = (await store.get('templates', true)) || [];
+      const rec = { id: uid(), title, medicines: (rx.medicines || []).map(stripMed) };
+      const next = [...list, rec];
+      await store.set('templates', next, true);
+      setTemplates(next);
+      setTplMode(null);
+      setTplTitle('');
+    } catch (e) {
+      onError("Shablonni saqlab bo'lmadi.");
+    }
+  };
+
+  const deleteTemplate = async (id) => {
+    if (!window.confirm('Shablonni o\'chirasizmi?')) return;
+    try {
+      const next = templates.filter((t) => t.id !== id);
+      await store.set('templates', next, true);
+      setTemplates(next);
+    } catch (e) {
+      onError("Shablonni o'chirib bo'lmadi.");
+    }
   };
 
   const deletePatient = async () => {
@@ -819,9 +862,47 @@ function DoctorPatient({ code, onBack, onError, onDeletedPatient }) {
             onSave={upsertMed}
           />
         ) : (
-          <Btn variant="gold" full onClick={() => setEditing('new')} style={{ marginTop: 12 }}>
-            <Plus size={18} /> Dori qo'shish
-          </Btn>
+          <>
+            <Btn variant="gold" full onClick={() => setEditing('new')} style={{ marginTop: 12 }}>
+              <Plus size={18} /> Dori qo'shish
+            </Btn>
+            <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+              {templates.length > 0 && (
+                <Btn variant="quiet" onClick={() => setTplMode('pick')} style={{ flex: 1, fontSize: 14 }}>
+                  <Files size={16} /> Shablondan
+                </Btn>
+              )}
+              {(rx.medicines || []).length > 0 && (
+                <Btn variant="quiet" onClick={() => { setTplTitle(''); setTplMode('save'); }} style={{ flex: 1, fontSize: 14 }}>
+                  <Files size={16} /> Shablon saqlash
+                </Btn>
+              )}
+            </div>
+
+            {tplMode === 'pick' && (
+              <TemplatePicker templates={templates} onApply={applyTemplate} onDelete={deleteTemplate} onClose={() => setTplMode(null)} />
+            )}
+
+            {tplMode === 'save' && (
+              <Card style={{ marginTop: 10, borderColor: C.gold, background: '#FFFDF7' }}>
+                <div style={{ fontFamily: SERIF, fontSize: 17, color: C.tealDeep, fontWeight: 600, marginBottom: 4 }}>Shablon sifatida saqlash</div>
+                <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 10 }}>
+                  Joriy <b>{(rx.medicines || []).length} ta</b> dori shablonga saqlanadi (bemorga bog'lanmagan holda).
+                </div>
+                <input
+                  style={inputStyle}
+                  value={tplTitle}
+                  onChange={(e) => setTplTitle(e.target.value)}
+                  placeholder="Shablon nomi (masalan: Gipertoniya standart)"
+                  onKeyDown={(e) => e.key === 'Enter' && saveAsTemplate()}
+                />
+                <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+                  <Btn variant="ghost" onClick={() => { setTplMode(null); setTplTitle(''); }} style={{ flex: 1 }}>Bekor qilish</Btn>
+                  <Btn variant="gold" onClick={saveAsTemplate} style={{ flex: 1 }}>Saqlash</Btn>
+                </div>
+              </Card>
+            )}
+          </>
         )}
 
         <Btn variant="ghost" full onClick={deletePatient} style={{ marginTop: 24, color: C.red, borderColor: '#E7C6C1' }}>
@@ -829,6 +910,40 @@ function DoctorPatient({ code, onBack, onError, onDeletedPatient }) {
         </Btn>
       </div>
     </div>
+  );
+}
+
+/* Shablon tanlash — retseptga qo'shish yoki o'chirish */
+function TemplatePicker({ templates, onApply, onDelete, onClose }) {
+  return (
+    <Card style={{ marginTop: 10, borderColor: C.teal }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <div style={{ fontFamily: SERIF, fontSize: 17, color: C.tealDeep, fontWeight: 600 }}>Shablon tanlang</div>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.inkSoft }}>
+          <X size={20} />
+        </button>
+      </div>
+      <div style={{ display: 'grid', gap: 8 }}>
+        {templates.map((t) => (
+          <div key={t.id} style={{ border: `1px solid ${C.line}`, borderRadius: 12, padding: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: SANS, fontSize: 15.5, fontWeight: 700, color: C.ink }}>{t.title}</div>
+                <div style={{ fontFamily: SANS, fontSize: 12.5, color: C.inkSoft, marginTop: 2 }}>
+                  {(t.medicines || []).map((m) => m.name).join(', ') || 'Bo\'sh'}
+                </div>
+              </div>
+              <button onClick={() => onDelete(t.id)} title="Shablonni o'chirish" style={{ ...iconBtn, color: C.red }}>
+                <Trash2 size={15} />
+              </button>
+            </div>
+            <Btn variant="sage" full onClick={() => onApply(t)} style={{ marginTop: 10, padding: '10px', fontSize: 14 }}>
+              <Plus size={15} /> Retseptga qo'shish ({(t.medicines || []).length} dori)
+            </Btn>
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }
 
