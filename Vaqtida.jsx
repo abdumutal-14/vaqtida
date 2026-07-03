@@ -4,6 +4,7 @@ import {
   Trash2, Pencil, Plus, ArrowLeft, LogOut, Copy, X, ChevronRight, Clock,
   Users, ClipboardList, CalendarClock, Info, ShieldAlert,
 } from 'lucide-react';
+import { store, hasBackend } from './db.js';
 
 /* =========================================================================
    "Vaqtida" — dori qabul qilishni nazorat qiluvchi mobil-veb ilova
@@ -38,24 +39,8 @@ const C = {
 const SERIF = "'Fraunces', Georgia, serif";
 const SANS = "'IBM Plex Sans', system-ui, -apple-system, sans-serif";
 
-/* --------------------------- Storage wrapper ---------------------------
-   window.storage API (get/set, shared) ustidan ishlaydi. Agar mavjud
-   bo'lmasa, localStorage'ga tushib qoladi. Har bir chaqiruv try/catch. */
-const store = {
-  async get(key, shared) {
-    if (typeof window !== 'undefined' && window.storage && window.storage.get) {
-      return await window.storage.get(key, { shared });
-    }
-    const raw = localStorage.getItem((shared ? 's::' : 'p::') + key);
-    return raw ? JSON.parse(raw) : null;
-  },
-  async set(key, value, shared) {
-    if (typeof window !== 'undefined' && window.storage && window.storage.set) {
-      return await window.storage.set(key, value, { shared });
-    }
-    localStorage.setItem((shared ? 's::' : 'p::') + key, JSON.stringify(value));
-  },
-};
+/* Ma'lumot qatlami (store) ./db.js dan import qilinadi:
+   shared:true → Supabase (bulut) yoki localStorage; shared:false → localStorage. */
 
 /* ------------------------------ Sana yordamchi ------------------------------ */
 const pad = (n) => String(n).padStart(2, '0');
@@ -427,6 +412,21 @@ function RoleSelect({ onPick }) {
           </div>
           <ChevronRight color={C.inkSoft} />
         </Card>
+      </div>
+
+      <div style={{ textAlign: 'center', margin: '16px 0 8px' }}>
+        <span
+          style={{
+            fontFamily: SANS, fontSize: 12.5, fontWeight: 600, padding: '5px 12px', borderRadius: 20,
+            color: hasBackend ? '#3E5637' : '#7A5A12',
+            background: hasBackend ? '#E7F0E3' : '#FBF1D6',
+            border: `1px solid ${hasBackend ? C.sage : C.gold}`,
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+          }}
+        >
+          <span style={{ width: 8, height: 8, borderRadius: 4, background: hasBackend ? C.sage : C.gold, display: 'inline-block' }} />
+          {hasBackend ? "Bulutga ulangan — qurilmalar o'rtasida sinxron" : 'Mahalliy rejim — faqat shu brauzerda'}
+        </span>
       </div>
 
       <Banner type="info" icon={<Info size={18} />}>
