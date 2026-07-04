@@ -292,6 +292,27 @@ function DayArc({ doses, now }) {
   );
 }
 
+/* Xatolik chegarasi — bir komponent qulasa ham butun sayt oq bo'lib qolmasin */
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) { console.error('Ilova xatosi:', error, info); }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 24, fontFamily: SANS, color: C.ink }}>
+          <div style={{ fontFamily: SERIF, fontSize: 22, color: C.tealDeep, fontWeight: 600, marginBottom: 8 }}>Nimadir xato ketdi</div>
+          <p style={{ fontSize: 15, color: C.inkSoft, lineHeight: 1.5, marginBottom: 16 }}>
+            Ilovada kutilmagan xatolik yuz berdi. Sahifani qayta yuklab ko'ring. Muammo takrorlansa, shifokoringizga yoki dastur egasiga xabar bering.
+          </p>
+          <Btn variant="primary" onClick={() => window.location.reload()}>Sahifani qayta yuklash</Btn>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 /* =========================================================================
    Root App — rol tanlash va marshrutlash
    ========================================================================= */
@@ -391,7 +412,7 @@ export default function App() {
             </Banner>
           </div>
         )}
-        {content}
+        <ErrorBoundary>{content}</ErrorBoundary>
 
         {/* Katta shrift toggle — har doim ko'rinadigan */}
         <button

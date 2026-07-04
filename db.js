@@ -53,11 +53,14 @@ export const store = {
     localStorage.setItem((shared ? 's::' : 'p::') + key, JSON.stringify(value));
   },
 
-  /* Real-time (ixtiyoriy). Backend yo'q bo'lsa — no-op. */
+  /* Real-time (ixtiyoriy). Backend yo'q bo'lsa — no-op.
+     Har obuna uchun NOYOB kanal nomi — bir nechta komponent bir vaqtda
+     obuna bo'lganda (masalan DoctorApp + DoctorPatient) to'qnashmasin. */
   subscribe(onChange) {
     if (!sb) return () => {};
+    const name = `kv_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const ch = sb
-      .channel('kv_store_changes')
+      .channel(name)
       .on('postgres_changes', { event: '*', schema: 'public', table: TABLE }, (payload) => onChange(payload))
       .subscribe();
     return () => sb.removeChannel(ch);
