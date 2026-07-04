@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Stethoscope, User, UserPlus, Pill, Bell, BellOff, Check, AlertTriangle,
   Trash2, Pencil, Plus, ArrowLeft, LogOut, Copy, X, ChevronRight, Clock,
-  Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files, Lock, Mail, CalendarDays,
+  Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files, Lock, Mail, CalendarDays, Phone,
 } from 'lucide-react';
 import { store, hasBackend, auth } from './db.js';
 
@@ -55,6 +55,8 @@ const timeAsDate = (ds, hhmm) => new Date(`${ds}T${hhmm}:00`);
 const doseKey = (medId, hhmm) => `${medId}__${hhmm}`;
 const gen6 = () => String(Math.floor(100000 + Math.random() * 900000));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const curYear = () => new Date().getFullYear();
+const validBirthYear = (y) => { const n = Number(y); return Number.isInteger(n) && n >= 1900 && n <= curYear(); };
 
 /* Dori shu kunda amal qiladimi? (bo'sh durationDays = doimiy) */
 const medActiveOn = (med, ds) => {
@@ -666,12 +668,18 @@ function DoctorAddPatient({ doctorId, onAdded, onError }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [diagnosis, setDiagnosis] = useState('');
+  const [phone, setPhone] = useState('');
+  const [birthYear, setBirthYear] = useState('');
   const [newCode, setNewCode] = useState(null);
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {
     if (!name.trim() || !diagnosis.trim()) {
       onError('Ism va tashxisni to\'ldiring.');
+      return;
+    }
+    if (birthYear && !validBirthYear(birthYear)) {
+      onError(`Tug'ilgan yil 1900–${curYear()} oralig'ida bo'lsin (yoki bo'sh qoldiring).`);
       return;
     }
     setSaving(true);
@@ -683,13 +691,15 @@ function DoctorAddPatient({ doctorId, onAdded, onError }) {
         code = gen6();
         guard++;
       }
-      const rec = { code, name: name.trim(), diagnosis: diagnosis.trim(), createdAt: Date.now() };
+      const rec = { code, name: name.trim(), diagnosis: diagnosis.trim(), phone: phone.trim(), birthYear: birthYear ? Number(birthYear) : null, createdAt: Date.now() };
       await store.set(`patient:${code}`, rec, true);
       await store.set(`rx:${code}`, { medicines: [] }, true);
       await store.set(`patients:${doctorId}`, [...existing, rec], true);
       setNewCode(code);
       setName('');
       setDiagnosis('');
+      setPhone('');
+      setBirthYear('');
       onAdded();
     } catch (e) {
       onError("Bemorni saqlab bo'lmadi. Qaytadan urinib ko'ring.");
@@ -741,6 +751,18 @@ function DoctorAddPatient({ doctorId, onAdded, onError }) {
           <Field label="Tashxis">
             <input style={inputStyle} value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} placeholder="Masalan: Gipertoniya II daraja" />
           </Field>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <div style={{ flex: 1.4 }}>
+              <Field label="Telefon" hint="Ixtiyoriy">
+                <input style={inputStyle} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+998 90 123 45 67" />
+              </Field>
+            </div>
+            <div style={{ flex: 1 }}>
+              <Field label="Tug'ilgan yil" hint="Ixtiyoriy">
+                <input style={inputStyle} value={birthYear} onChange={(e) => setBirthYear(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))} placeholder="1985" inputMode="numeric" />
+              </Field>
+            </div>
+          </div>
           <Btn variant="gold" full onClick={submit} disabled={saving}>
             {saving ? 'Saqlanmoqda…' : 'Qo\'shish va kod olish'}
           </Btn>
@@ -938,6 +960,8 @@ function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
   const [editInfo, setEditInfo] = useState(false);
   const [eName, setEName] = useState('');
   const [eDx, setEDx] = useState('');
+  const [ePhone, setEPhone] = useState('');
+  const [eYear, setEYear] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -945,7 +969,7 @@ function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
       const r = (await store.get(`rx:${code}`, true)) || { medicines: [] };
       const t = (await store.get(`templates:${doctorId}`, true)) || [];
       setPatient(p);
-      if (p) { setEName(p.name || ''); setEDx(p.diagnosis || ''); }
+      if (p) { setEName(p.name || ''); setEDx(p.diagnosis || ''); setEPhone(p.phone || ''); setEYear(p.birthYear ? String(p.birthYear) : ''); }
       setRx(r);
       setTemplates(t);
       setStats(await computeStats(code));
@@ -1021,13 +1045,15 @@ function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
   };
 
   const savePatientInfo = async () => {
-    const name = eName.trim(), diagnosis = eDx.trim();
+    const name = eName.trim(), diagnosis = eDx.trim(), phone = ePhone.trim();
     if (!name || !diagnosis) return onError('Ism va tashxis bo\'sh bo\'lmasin.');
+    if (eYear && !validBirthYear(eYear)) return onError(`Tug'ilgan yil 1900–${curYear()} oralig'ida bo'lsin (yoki bo'sh qoldiring).`);
+    const birthYear = eYear ? Number(eYear) : null;
     try {
-      const next = { ...patient, name, diagnosis };
+      const next = { ...patient, name, diagnosis, phone, birthYear };
       await store.set(`patient:${code}`, next, true);
       const list = (await store.get(`patients:${doctorId}`, true)) || [];
-      await store.set(`patients:${doctorId}`, list.map((p) => (p.code === code ? { ...p, name, diagnosis } : p)), true);
+      await store.set(`patients:${doctorId}`, list.map((p) => (p.code === code ? { ...p, name, diagnosis, phone, birthYear } : p)), true);
       setPatient(next);
       setEditInfo(false);
     } catch (e) {
@@ -1067,11 +1093,23 @@ function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 2 }}>Bemor</div>
-                <div style={{ fontFamily: SANS, fontSize: 16, color: C.ink, fontWeight: 700, marginBottom: 8 }}>{patient.name}</div>
+                <div style={{ fontFamily: SANS, fontSize: 16, color: C.ink, fontWeight: 700, marginBottom: 2 }}>{patient.name}</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 8 }}>
+                  {patient.phone && (
+                    <a href={`tel:${patient.phone.replace(/\s/g, '')}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: SANS, fontSize: 13.5, color: C.teal, textDecoration: 'none', fontWeight: 600 }}>
+                      <Phone size={14} /> {patient.phone}
+                    </a>
+                  )}
+                  {patient.birthYear && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: SANS, fontSize: 13.5, color: C.inkSoft }}>
+                      <CalendarDays size={14} /> {patient.birthYear}-y. ({curYear() - patient.birthYear} yosh)
+                    </span>
+                  )}
+                </div>
                 <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 2 }}>Tashxis</div>
                 <div style={{ fontFamily: SERIF, fontSize: 19, color: C.tealDeep, fontWeight: 600 }}>{patient.diagnosis}</div>
               </div>
-              <button onClick={() => { setEName(patient.name); setEDx(patient.diagnosis); setEditInfo(true); }} title="Tahrirlash" style={iconBtn}>
+              <button onClick={() => { setEName(patient.name); setEDx(patient.diagnosis); setEPhone(patient.phone || ''); setEYear(patient.birthYear ? String(patient.birthYear) : ''); setEditInfo(true); }} title="Tahrirlash" style={iconBtn}>
                 <Pencil size={16} />
               </button>
             </div>
@@ -1083,8 +1121,20 @@ function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
               <input style={inputStyle} value={eName} onChange={(e) => setEName(e.target.value)} placeholder="Ism familiya" />
             </Field>
             <Field label="Tashxis">
-              <input style={inputStyle} value={eDx} onChange={(e) => setEDx(e.target.value)} placeholder="Tashxis" onKeyDown={(e) => e.key === 'Enter' && savePatientInfo()} />
+              <input style={inputStyle} value={eDx} onChange={(e) => setEDx(e.target.value)} placeholder="Tashxis" />
             </Field>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <div style={{ flex: 1.4 }}>
+                <Field label="Telefon" hint="Ixtiyoriy">
+                  <input style={inputStyle} type="tel" value={ePhone} onChange={(e) => setEPhone(e.target.value)} placeholder="+998 90 123 45 67" />
+                </Field>
+              </div>
+              <div style={{ flex: 1 }}>
+                <Field label="Tug'ilgan yil" hint="Ixtiyoriy">
+                  <input style={inputStyle} value={eYear} onChange={(e) => setEYear(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))} placeholder="1985" inputMode="numeric" onKeyDown={(e) => e.key === 'Enter' && savePatientInfo()} />
+                </Field>
+              </div>
+            </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <Btn variant="ghost" onClick={() => setEditInfo(false)} style={{ flex: 1 }}>Bekor qilish</Btn>
               <Btn variant="gold" onClick={savePatientInfo} style={{ flex: 1 }}>Saqlash</Btn>
