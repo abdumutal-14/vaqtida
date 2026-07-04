@@ -592,6 +592,9 @@ function DoctorApp({ doctorId, email, onLogout, onError }) {
   const [view, setView] = useState('list'); // list | patient
   const [selected, setSelected] = useState(null); // code
   const [loading, setLoading] = useState(true);
+  const [tick, setTick] = useState(0); // real-time qayta hisoblash uchun
+  const patientsRef = useRef([]);
+  useEffect(() => { patientsRef.current = patients; }, [patients]);
 
   const loadPatients = useCallback(async () => {
     try {
@@ -607,6 +610,18 @@ function DoctorApp({ doctorId, email, onLogout, onError }) {
   useEffect(() => {
     loadPatients();
   }, [loadPatients]);
+
+  // Real-time: bemor doza belgilasa yoki ro'yxat o'zgarsa jonli yangilanadi
+  useEffect(() => {
+    const off = store.subscribe((payload) => {
+      const key = payload?.new?.key || payload?.old?.key;
+      if (!key) return;
+      if (key === `patients:${doctorId}`) { loadPatients(); return; }
+      const m = key.match(/^(?:log|rx|patient):(\d{6})/);
+      if (m && patientsRef.current.some((p) => p.code === m[1])) setTick((t) => t + 1);
+    });
+    return off;
+  }, [doctorId, loadPatients]);
 
   if (view === 'patient' && selected) {
     return (
@@ -654,7 +669,7 @@ function DoctorApp({ doctorId, email, onLogout, onError }) {
               .slice()
               .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
               .map((p) => (
-                <PatientRow key={p.code} patient={p} onOpen={() => { setSelected(p.code); setView('patient'); }} onError={onError} />
+                <PatientRow key={p.code} patient={p} tick={tick} onOpen={() => { setSelected(p.code); setView('patient'); }} onError={onError} />
               ))}
           </div>
         )}
@@ -773,7 +788,7 @@ function DoctorAddPatient({ doctorId, onAdded, onError }) {
 }
 
 /* Bemor qatori — statistika va ogohlantirish belgisi bilan */
-function PatientRow({ patient, onOpen, onError }) {
+function PatientRow({ patient, tick, onOpen, onError }) {
   const [stats, setStats] = useState(null);
 
   useEffect(() => {
@@ -787,7 +802,7 @@ function PatientRow({ patient, onOpen, onError }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [patient.code, onError]);
+  }, [patient.code, tick, onError]);
 
   const danger = stats && stats.missed3 >= 3;
 
@@ -981,6 +996,16 @@ function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
   }, [code, doctorId, onError]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Real-time: bemor doza belgilasa statistika/tarix jonli yangilanadi
+  useEffect(() => {
+    const off = store.subscribe((payload) => {
+      const key = payload?.new?.key || payload?.old?.key;
+      if (!key) return;
+      if (key === `patient:${code}` || key === `rx:${code}` || key.startsWith(`log:${code}:`)) load();
+    });
+    return off;
+  }, [code, load]);
 
   const saveRx = async (medicines) => {
     try {
@@ -1470,6 +1495,7 @@ function PatientApp({ code, onLogout, onError }) {
   const [now, setNow] = useState(new Date());
   const [notifPerm, setNotifPerm] = useState(typeof Notification !== 'undefined' ? Notification.permission : 'unavailable');
   const [dismissedReminder, setDismissedReminder] = useState(false);
+  const [liveMsg, setLiveMsg] = useState(null);
 
   const audioRef = useRef(null);
   const beepedRef = useRef(new Set()); // qaytariqni oldini olish uchun
@@ -1492,6 +1518,27 @@ function PatientApp({ code, onLogout, onError }) {
   }, [code, day, onError]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Real-time: shifokor o'zgartirsa reload'siz yangilanadi
+  useEffect(() => {
+    const off = store.subscribe((payload) => {
+      const key = payload?.new?.key || payload?.old?.key;
+      if (!key) return;
+      if (key === `patient:${code}` || key === `rx:${code}` || key === `log:${code}:${day}`) {
+        if (key === `rx:${code}`) setLiveMsg('Shifokor retseptingizni yangiladi');
+        else if (key === `patient:${code}`) setLiveMsg("Ma'lumotingiz yangilandi");
+        load();
+      }
+    });
+    return off;
+  }, [code, day, load]);
+
+  // Live xabarni avtomatik yashirish
+  useEffect(() => {
+    if (!liveMsg) return;
+    const id = setTimeout(() => setLiveMsg(null), 6000);
+    return () => clearTimeout(id);
+  }, [liveMsg]);
 
   // Soatni yangilab turish (30 soniyada bir)
   useEffect(() => {
@@ -1632,6 +1679,13 @@ function PatientApp({ code, onLogout, onError }) {
       />
 
       <div style={{ padding: 16 }}>
+        {/* Real-time yangilanish xabari */}
+        {liveMsg && (
+          <Banner type="success" icon={<CalendarClock size={18} />} onClose={() => setLiveMsg(null)}>
+            {liveMsg}
+          </Banner>
+        )}
+
         {/* Eslatma banneri (due doza) */}
         {dueDoses.length > 0 && !dismissedReminder && (
           <div style={{ animation: 'none' }}>
