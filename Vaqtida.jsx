@@ -770,7 +770,7 @@ function PatientRow({ patient, onOpen, onError }) {
   const danger = stats && stats.missed3 >= 3;
 
   return (
-    <Card onClick={onOpen} style={{ display: 'flex', alignItems: 'center', gap: 12, borderColor: danger ? C.red : C.line }}>
+    <Card onClick={onOpen} style={{ display: 'flex', alignItems: 'center', gap: 12, border: `1px solid ${danger ? C.red : C.line}` }}>
       <div
         style={{
           width: 46, height: 46, borderRadius: 12, flexShrink: 0,
@@ -935,6 +935,9 @@ function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
   const [templates, setTemplates] = useState([]);
   const [tplMode, setTplMode] = useState(null); // null | 'pick' | 'save'
   const [tplTitle, setTplTitle] = useState('');
+  const [editInfo, setEditInfo] = useState(false);
+  const [eName, setEName] = useState('');
+  const [eDx, setEDx] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -942,6 +945,7 @@ function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
       const r = (await store.get(`rx:${code}`, true)) || { medicines: [] };
       const t = (await store.get(`templates:${doctorId}`, true)) || [];
       setPatient(p);
+      if (p) { setEName(p.name || ''); setEDx(p.diagnosis || ''); }
       setRx(r);
       setTemplates(t);
       setStats(await computeStats(code));
@@ -1016,6 +1020,21 @@ function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
     }
   };
 
+  const savePatientInfo = async () => {
+    const name = eName.trim(), diagnosis = eDx.trim();
+    if (!name || !diagnosis) return onError('Ism va tashxis bo\'sh bo\'lmasin.');
+    try {
+      const next = { ...patient, name, diagnosis };
+      await store.set(`patient:${code}`, next, true);
+      const list = (await store.get(`patients:${doctorId}`, true)) || [];
+      await store.set(`patients:${doctorId}`, list.map((p) => (p.code === code ? { ...p, name, diagnosis } : p)), true);
+      setPatient(next);
+      setEditInfo(false);
+    } catch (e) {
+      onError("Ma'lumotni saqlab bo'lmadi.");
+    }
+  };
+
   const deletePatient = async () => {
     if (!window.confirm(`${patient?.name || 'Bemor'}ni butunlay o'chirasizmi? Retsept va tarix ham o'chadi.`)) return;
     try {
@@ -1043,10 +1062,35 @@ function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
     <div>
       <TopBar title={patient.name} subtitle={`Kod: ${patient.code}`} onBack={onBack} />
       <div style={{ padding: 16 }}>
-        <Card style={{ marginBottom: 4 }}>
-          <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 2 }}>Tashxis</div>
-          <div style={{ fontFamily: SERIF, fontSize: 19, color: C.tealDeep, fontWeight: 600 }}>{patient.diagnosis}</div>
-        </Card>
+        {!editInfo ? (
+          <Card style={{ marginBottom: 4 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 2 }}>Bemor</div>
+                <div style={{ fontFamily: SANS, fontSize: 16, color: C.ink, fontWeight: 700, marginBottom: 8 }}>{patient.name}</div>
+                <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 2 }}>Tashxis</div>
+                <div style={{ fontFamily: SERIF, fontSize: 19, color: C.tealDeep, fontWeight: 600 }}>{patient.diagnosis}</div>
+              </div>
+              <button onClick={() => { setEName(patient.name); setEDx(patient.diagnosis); setEditInfo(true); }} title="Tahrirlash" style={iconBtn}>
+                <Pencil size={16} />
+              </button>
+            </div>
+          </Card>
+        ) : (
+          <Card style={{ marginBottom: 4, border: `1.5px solid ${C.gold}`, background: '#FFFDF7' }}>
+            <div style={{ fontFamily: SERIF, fontSize: 17, color: C.tealDeep, fontWeight: 600, marginBottom: 10 }}>Bemor ma'lumotini tahrirlash</div>
+            <Field label="Bemor ismi">
+              <input style={inputStyle} value={eName} onChange={(e) => setEName(e.target.value)} placeholder="Ism familiya" />
+            </Field>
+            <Field label="Tashxis">
+              <input style={inputStyle} value={eDx} onChange={(e) => setEDx(e.target.value)} placeholder="Tashxis" onKeyDown={(e) => e.key === 'Enter' && savePatientInfo()} />
+            </Field>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <Btn variant="ghost" onClick={() => setEditInfo(false)} style={{ flex: 1 }}>Bekor qilish</Btn>
+              <Btn variant="gold" onClick={savePatientInfo} style={{ flex: 1 }}>Saqlash</Btn>
+            </div>
+          </Card>
+        )}
 
         {danger && (
           <div style={{ marginTop: 12 }}>
@@ -1108,7 +1152,7 @@ function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
             )}
 
             {tplMode === 'save' && (
-              <Card style={{ marginTop: 10, borderColor: C.gold, background: '#FFFDF7' }}>
+              <Card style={{ marginTop: 10, border: `1.5px solid ${C.gold}`, background: '#FFFDF7' }}>
                 <div style={{ fontFamily: SERIF, fontSize: 17, color: C.tealDeep, fontWeight: 600, marginBottom: 4 }}>Shablon sifatida saqlash</div>
                 <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 10 }}>
                   Joriy <b>{(rx.medicines || []).length} ta</b> dori shablonga saqlanadi (bemorga bog'lanmagan holda).
@@ -1129,7 +1173,7 @@ function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
           </>
         )}
 
-        <Btn variant="ghost" full onClick={deletePatient} style={{ marginTop: 24, color: C.red, borderColor: '#E7C6C1' }}>
+        <Btn variant="ghost" full onClick={deletePatient} style={{ marginTop: 24, color: C.red, border: '1.5px solid #E7C6C1' }}>
           <Trash2 size={16} /> Bemorni o'chirish
         </Btn>
       </div>
@@ -1140,7 +1184,7 @@ function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
 /* Shablon tanlash — retseptga qo'shish yoki o'chirish */
 function TemplatePicker({ templates, onApply, onDelete, onClose }) {
   return (
-    <Card style={{ marginTop: 10, borderColor: C.teal }}>
+    <Card style={{ marginTop: 10, border: `1px solid ${C.teal}` }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <div style={{ fontFamily: SERIF, fontSize: 17, color: C.tealDeep, fontWeight: 600 }}>Shablon tanlang</div>
         <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.inkSoft }}>
@@ -1253,7 +1297,7 @@ function MedForm({ initial, onCancel, onSave }) {
   };
 
   return (
-    <Card style={{ marginTop: 12, borderColor: C.gold, background: '#FFFDF7' }}>
+    <Card style={{ marginTop: 12, border: `1.5px solid ${C.gold}`, background: '#FFFDF7' }}>
       <div style={{ fontFamily: SERIF, fontSize: 18, color: C.tealDeep, fontWeight: 600, marginBottom: 12 }}>
         {initial ? 'Dorini tahrirlash' : 'Yangi dori'}
       </div>
@@ -1633,7 +1677,7 @@ function DoseCard({ dose, onTake, onUndo }) {
   }[status];
 
   return (
-    <Card style={{ background: cfg.bg, borderColor: cfg.bd, borderWidth: status === 'due' ? 2 : 1, borderStyle: 'solid' }}>
+    <Card style={{ background: cfg.bg, border: `${status === 'due' ? 2 : 1}px solid ${cfg.bd}` }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <div style={{ textAlign: 'center', minWidth: 58 }}>
           <div style={{ fontFamily: SERIF, fontSize: 22, fontWeight: 700, color: C.tealDeep, lineHeight: 1 }}>{time}</div>
