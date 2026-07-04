@@ -2,9 +2,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Stethoscope, User, UserPlus, Pill, Bell, BellOff, Check, AlertTriangle,
   Trash2, Pencil, Plus, ArrowLeft, LogOut, Copy, X, ChevronRight, Clock,
-  Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files,
+  Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files, Lock, Mail,
 } from 'lucide-react';
-import { store, hasBackend } from './db.js';
+import { store, hasBackend, auth } from './db.js';
 
 /* =========================================================================
    "Vaqtida" — dori qabul qilishni nazorat qiluvchi mobil-veb ilova
@@ -297,8 +297,17 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [settings, setSettings] = useState({ role: null, code: null });
   const [globalError, setGlobalError] = useState(null);
+  const [authUser, setAuthUser] = useState(null);
 
   const reportError = useCallback((msg) => setGlobalError(msg), []);
+
+  // Auth sessiyasini kuzatish (bulut rejimida)
+  useEffect(() => {
+    if (!hasBackend) return;
+    auth.getUser().then((u) => setAuthUser(u)).catch(() => {});
+    const off = auth.onChange((u) => setAuthUser(u));
+    return off;
+  }, []);
 
   useEffect(() => {
     // Shriftlarni yuklash (bir marta)
@@ -333,6 +342,12 @@ export default function App() {
 
   const logout = () => persistSettings({ role: null, code: null });
 
+  const doctorLogout = async () => {
+    try { await auth.signOut(); } catch (e) {}
+    setAuthUser(null);
+    persistSettings({ role: null, code: null });
+  };
+
   const shell = (content) => (
     <div
       style={{
@@ -363,7 +378,11 @@ export default function App() {
   }
 
   if (!settings.role) return shell(<RoleSelect onPick={(role) => persistSettings({ role, code: null })} />);
-  if (settings.role === 'doctor') return shell(<DoctorApp onLogout={logout} onError={reportError} />);
+  if (settings.role === 'doctor') {
+    if (hasBackend && !authUser) return shell(<DoctorAuth onBack={logout} onError={reportError} />);
+    const doctorId = authUser?.id || 'local';
+    return shell(<DoctorApp doctorId={doctorId} email={authUser?.email} onLogout={doctorLogout} onError={reportError} />);
+  }
   if (settings.role === 'patient' && !settings.code)
     return shell(<PatientLogin onLogin={(code) => persistSettings({ role: 'patient', code })} onBack={logout} onError={reportError} />);
   return shell(<PatientApp code={settings.code} onLogout={logout} onError={reportError} />);
@@ -430,8 +449,115 @@ function RoleSelect({ onPick }) {
       </div>
 
       <Banner type="info" icon={<Info size={18} />}>
-        <b>Eslatma:</b> Bu demo/prototip. Bemorlar ma'lumotlari umumiy saqlanadi — ilovadan foydalangan <b>har bir kishi</b> ularni ko'ra oladi. Haqiqiy mahsulotda har bir shifokor uchun alohida parolli hisob kerak bo'ladi.
+        {hasBackend ? (
+          <><b>Eslatma:</b> Har shifokor o'z hisobi bilan kiradi va <b>faqat o'z bemorlarini</b> ko'radi. Bemorlar 6 xonali kod bilan kiradi — kodni maxfiy saqlang.</>
+        ) : (
+          <><b>Eslatma:</b> Bu mahalliy demo — ma'lumot faqat shu brauzerda saqlanadi va autentifikatsiyasiz ishlaydi.</>
+        )}
       </Banner>
+    </div>
+  );
+}
+
+/* ------------------------------ Shifokor: kirish/ro'yxat ------------------------------ */
+function DoctorAuth({ onBack }) {
+  const [mode, setMode] = useState('login'); // login | signup
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [info, setInfo] = useState(null);
+
+  const submit = async () => {
+    setErr(null);
+    setInfo(null);
+    const em = email.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return setErr('To\'g\'ri email kiriting.');
+    if (password.length < 6) return setErr('Parol kamida 6 belgidan iborat bo\'lishi kerak.');
+    setBusy(true);
+    try {
+      if (mode === 'signup') {
+        const { session } = await auth.signUp(em, password);
+        if (!session) {
+          // Email tasdiqlash yoqilgan bo'lsa
+          setInfo('Hisob yaratildi. Emailingizni tasdiqlab, so\'ng kiring.');
+          setMode('login');
+        }
+        // session bo'lsa — App auth.onChange orqali avtomatik kiradi
+      } else {
+        await auth.signIn(em, password);
+      }
+    } catch (e) {
+      const m = (e && e.message) || '';
+      if (/Invalid login/i.test(m)) setErr('Email yoki parol noto\'g\'ri.');
+      else if (/already registered/i.test(m)) setErr('Bu email allaqachon ro\'yxatdan o\'tgan. Kiring.');
+      else if (/confirm/i.test(m)) setErr('Email tasdiqlanmagan. Pochtangizni tekshiring.');
+      else setErr(m || 'Kirishda xatolik yuz berdi.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: '40px 24px' }}>
+      <button onClick={onBack} style={{ background: C.paperSoft, border: 'none', borderRadius: 10, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: C.ink, marginBottom: 24 }}>
+        <ArrowLeft size={20} />
+      </button>
+
+      <div style={{ width: 60, height: 60, borderRadius: 16, background: '#E9F0F1', color: C.teal, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+        <Stethoscope size={30} />
+      </div>
+      <h1 style={{ fontFamily: SERIF, fontSize: 28, color: C.tealDeep, margin: '0 0 6px', fontWeight: 600 }}>
+        {mode === 'login' ? 'Shifokor hisobiga kirish' : 'Yangi shifokor hisobi'}
+      </h1>
+      <p style={{ fontFamily: SANS, fontSize: 15, color: C.inkSoft, margin: '0 0 22px', lineHeight: 1.5 }}>
+        {mode === 'login' ? 'Email va parolingiz bilan kiring.' : 'Email va parol tanlab, hisob oching.'}
+      </p>
+
+      {err && <Banner type="error" icon={<AlertTriangle size={18} />} onClose={() => setErr(null)}>{err}</Banner>}
+      {info && <Banner type="success" icon={<Check size={18} />} onClose={() => setInfo(null)}>{info}</Banner>}
+
+      <Field label="Email">
+        <div style={{ position: 'relative' }}>
+          <Mail size={18} style={{ position: 'absolute', left: 12, top: 14, color: C.inkSoft }} />
+          <input
+            style={{ ...inputStyle, paddingLeft: 40 }}
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="shifokor@email.com"
+            autoComplete="email"
+          />
+        </div>
+      </Field>
+      <Field label="Parol">
+        <div style={{ position: 'relative' }}>
+          <Lock size={18} style={{ position: 'absolute', left: 12, top: 14, color: C.inkSoft }} />
+          <input
+            style={{ ...inputStyle, paddingLeft: 40 }}
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Kamida 6 belgi"
+            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+            onKeyDown={(e) => e.key === 'Enter' && submit()}
+          />
+        </div>
+      </Field>
+
+      <Btn variant="primary" full onClick={submit} disabled={busy} style={{ marginTop: 4 }}>
+        {busy ? 'Kutilmoqda…' : mode === 'login' ? 'Kirish' : 'Hisob ochish'}
+      </Btn>
+
+      <div style={{ textAlign: 'center', marginTop: 16, fontFamily: SANS, fontSize: 14, color: C.inkSoft }}>
+        {mode === 'login' ? "Hisobingiz yo'qmi? " : 'Hisobingiz bormi? '}
+        <button
+          onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setErr(null); setInfo(null); }}
+          style={{ background: 'none', border: 'none', color: C.teal, fontWeight: 700, cursor: 'pointer', fontFamily: SANS, fontSize: 14 }}
+        >
+          {mode === 'login' ? 'Hisob oching' : 'Kiring'}
+        </button>
+      </div>
     </div>
   );
 }
@@ -459,7 +585,7 @@ function TopBar({ title, subtitle, onBack, right }) {
 /* =========================================================================
    SHIFOKOR
    ========================================================================= */
-function DoctorApp({ onLogout, onError }) {
+function DoctorApp({ doctorId, email, onLogout, onError }) {
   const [patients, setPatients] = useState([]);
   const [view, setView] = useState('list'); // list | patient
   const [selected, setSelected] = useState(null); // code
@@ -467,14 +593,14 @@ function DoctorApp({ onLogout, onError }) {
 
   const loadPatients = useCallback(async () => {
     try {
-      const list = (await store.get('patients', true)) || [];
+      const list = (await store.get(`patients:${doctorId}`, true)) || [];
       setPatients(list);
     } catch (e) {
       onError("Bemorlar ro'yxatini yuklab bo'lmadi.");
     } finally {
       setLoading(false);
     }
-  }, [onError]);
+  }, [doctorId, onError]);
 
   useEffect(() => {
     loadPatients();
@@ -483,6 +609,7 @@ function DoctorApp({ onLogout, onError }) {
   if (view === 'patient' && selected) {
     return (
       <DoctorPatient
+        doctorId={doctorId}
         code={selected}
         onBack={() => {
           setView('list');
@@ -503,7 +630,7 @@ function DoctorApp({ onLogout, onError }) {
     <div>
       <TopBar
         title="Shifokor paneli"
-        subtitle="Bemorlar va retseptlar"
+        subtitle={email || 'Bemorlar va retseptlar'}
         right={
           <Btn variant="quiet" onClick={onLogout} style={{ padding: '10px 12px', fontSize: 14 }}>
             <LogOut size={16} /> Chiqish
@@ -511,7 +638,7 @@ function DoctorApp({ onLogout, onError }) {
         }
       />
       <div style={{ padding: 16 }}>
-        <DoctorAddPatient patients={patients} onAdded={loadPatients} onError={onError} />
+        <DoctorAddPatient doctorId={doctorId} onAdded={loadPatients} onError={onError} />
 
         <SectionTitle icon={<Users size={18} color={C.teal} />}>Bemorlar ({patients.length})</SectionTitle>
 
@@ -535,7 +662,7 @@ function DoctorApp({ onLogout, onError }) {
 }
 
 /* Yangi bemor qo'shish */
-function DoctorAddPatient({ patients, onAdded, onError }) {
+function DoctorAddPatient({ doctorId, onAdded, onError }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [diagnosis, setDiagnosis] = useState('');
@@ -549,7 +676,7 @@ function DoctorAddPatient({ patients, onAdded, onError }) {
     }
     setSaving(true);
     try {
-      const existing = (await store.get('patients', true)) || [];
+      const existing = (await store.get(`patients:${doctorId}`, true)) || [];
       let code = gen6();
       let guard = 0;
       while (existing.some((p) => p.code === code) && guard < 50) {
@@ -559,7 +686,7 @@ function DoctorAddPatient({ patients, onAdded, onError }) {
       const rec = { code, name: name.trim(), diagnosis: diagnosis.trim(), createdAt: Date.now() };
       await store.set(`patient:${code}`, rec, true);
       await store.set(`rx:${code}`, { medicines: [] }, true);
-      await store.set('patients', [...existing, rec], true);
+      await store.set(`patients:${doctorId}`, [...existing, rec], true);
       setNewCode(code);
       setName('');
       setDiagnosis('');
@@ -706,7 +833,7 @@ async function computeStats(code) {
 }
 
 /* Shifokor: bitta bemor sahifasi — retsept + statistika */
-function DoctorPatient({ code, onBack, onError, onDeletedPatient }) {
+function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
   const [patient, setPatient] = useState(null);
   const [rx, setRx] = useState({ medicines: [] });
   const [stats, setStats] = useState(null);
@@ -720,7 +847,7 @@ function DoctorPatient({ code, onBack, onError, onDeletedPatient }) {
     try {
       const p = await store.get(`patient:${code}`, true);
       const r = (await store.get(`rx:${code}`, true)) || { medicines: [] };
-      const t = (await store.get('templates', true)) || [];
+      const t = (await store.get(`templates:${doctorId}`, true)) || [];
       setPatient(p);
       setRx(r);
       setTemplates(t);
@@ -730,7 +857,7 @@ function DoctorPatient({ code, onBack, onError, onDeletedPatient }) {
     } finally {
       setLoading(false);
     }
-  }, [code, onError]);
+  }, [code, doctorId, onError]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -773,10 +900,10 @@ function DoctorPatient({ code, onBack, onError, onDeletedPatient }) {
     if (!title) return onError('Shablon nomini kiriting.');
     if (!(rx.medicines || []).length) return onError('Saqlash uchun retseptda kamida bitta dori bo\'lishi kerak.');
     try {
-      const list = (await store.get('templates', true)) || [];
+      const list = (await store.get(`templates:${doctorId}`, true)) || [];
       const rec = { id: uid(), title, medicines: (rx.medicines || []).map(stripMed) };
       const next = [...list, rec];
-      await store.set('templates', next, true);
+      await store.set(`templates:${doctorId}`, next, true);
       setTemplates(next);
       setTplMode(null);
       setTplTitle('');
@@ -789,7 +916,7 @@ function DoctorPatient({ code, onBack, onError, onDeletedPatient }) {
     if (!window.confirm('Shablonni o\'chirasizmi?')) return;
     try {
       const next = templates.filter((t) => t.id !== id);
-      await store.set('templates', next, true);
+      await store.set(`templates:${doctorId}`, next, true);
       setTemplates(next);
     } catch (e) {
       onError("Shablonni o'chirib bo'lmadi.");
@@ -799,8 +926,8 @@ function DoctorPatient({ code, onBack, onError, onDeletedPatient }) {
   const deletePatient = async () => {
     if (!window.confirm(`${patient?.name || 'Bemor'}ni butunlay o'chirasizmi? Retsept va tarix ham o'chadi.`)) return;
     try {
-      const list = (await store.get('patients', true)) || [];
-      await store.set('patients', list.filter((p) => p.code !== code), true);
+      const list = (await store.get(`patients:${doctorId}`, true)) || [];
+      await store.set(`patients:${doctorId}`, list.filter((p) => p.code !== code), true);
       await store.set(`patient:${code}`, null, true);
       await store.set(`rx:${code}`, null, true);
       onDeletedPatient();
