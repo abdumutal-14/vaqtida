@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Stethoscope, User, UserPlus, Pill, Bell, BellOff, Check, AlertTriangle,
   Trash2, Pencil, Plus, ArrowLeft, LogOut, Copy, X, ChevronRight, Clock,
-  Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files, Lock, Mail,
+  Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files, Lock, Mail, CalendarDays,
 } from 'lucide-react';
 import { store, hasBackend, auth } from './db.js';
 
@@ -832,6 +832,99 @@ async function computeStats(code) {
   return { takenToday, totalToday, missed3 };
 }
 
+/* So'nggi 7 kun bajarilishi + ketma-ketlik (streak) */
+async function computeWeek(code) {
+  const now = new Date();
+  const rx = (await store.get(`rx:${code}`, true)) || { medicines: [] };
+  const meds = rx.medicines || [];
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const ds = addDays(todayStr(), -i);
+    const log = (await store.get(`log:${code}:${ds}`, true)) || [];
+    let taken = 0, total = 0, upcoming = 0;
+    for (const m of meds) {
+      if (!medActiveOn(m, ds)) continue;
+      for (const t of m.times || []) {
+        total++;
+        const isTaken = log.includes(doseKey(m.id, t));
+        const st = doseStatus(ds, t, isTaken, now);
+        if (st === 'taken') taken++;
+        else if (st === 'upcoming' || st === 'due') upcoming++;
+      }
+    }
+    let status;
+    if (total === 0) status = 'none';
+    else if (taken === total) status = 'full';
+    else if (taken === 0 && upcoming === 0) status = 'missed';
+    else status = 'partial';
+    days.push({ date: ds, dow: new Date(ds + 'T00:00:00').getDay(), taken, total, status, isToday: ds === todayStr(), hasUpcoming: upcoming > 0 });
+  }
+  // Ketma-ketlik: eng yangi kundan orqaga qarab to'liq kunlar
+  let streak = 0, counted = false;
+  for (let i = days.length - 1; i >= 0; i--) {
+    const d = days[i];
+    if (d.status === 'full') { streak++; counted = true; }
+    else if (d.status === 'none') { continue; } // dorisiz kun ketma-ketlikni uzmaydi
+    else if (!counted && d.isToday && d.hasUpcoming) { continue; } // bugun hali tugamagan
+    else break;
+  }
+  return { days, streak };
+}
+
+/* Haftalik tarix ko'rinishi (bemor + shifokor) */
+function WeeklyHistory({ code, refreshKey }) {
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try { const w = await computeWeek(code); if (!cancelled) setData(w); }
+      catch (e) { if (!cancelled) setErr(true); }
+    })();
+    return () => { cancelled = true; };
+  }, [code, refreshKey]);
+
+  if (err) return <Card style={{ textAlign: 'center', color: C.red, padding: 16 }}>Tarixni yuklab bo'lmadi.</Card>;
+  if (!data) return <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 16 }}>Yuklanmoqda…</Card>;
+
+  const WD = ['Ya', 'Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sh'];
+  const colorFor = (st) => (st === 'full' ? C.sage : st === 'partial' ? C.gold : st === 'missed' ? C.red : C.paperSoft);
+  const anyMeds = data.days.some((d) => d.total > 0);
+
+  return (
+    <Card>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+        {data.days.map((d) => (
+          <div key={d.date} style={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
+            <div style={{ fontFamily: SANS, fontSize: 11, color: d.isToday ? C.tealDeep : C.inkSoft, fontWeight: d.isToday ? 700 : 500, marginBottom: 6 }}>{WD[d.dow]}</div>
+            <div
+              title={`${d.date}: ${d.total ? `${d.taken}/${d.total} doza` : 'dori yo\'q'}`}
+              style={{
+                height: 36, borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: colorFor(d.status),
+                color: d.status === 'none' ? C.inkSoft : d.status === 'partial' ? C.tealDeep : C.white,
+                border: d.isToday ? `2px solid ${C.tealDeep}` : `1px solid ${C.line}`,
+                fontFamily: SANS, fontSize: 11.5, fontWeight: 700,
+              }}
+            >
+              {d.status === 'none' ? '–' : `${d.taken}/${d.total}`}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ textAlign: 'center', marginTop: 12 }}>
+        {!anyMeds ? (
+          <span style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft }}>So'nggi 7 kunda dori tayinlanmagan</span>
+        ) : data.streak > 0 ? (
+          <span style={{ fontFamily: SANS, fontSize: 14, color: '#3E5637', fontWeight: 700 }}>🔥 {data.streak} kun ketma-ket to'liq</span>
+        ) : (
+          <span style={{ fontFamily: SANS, fontSize: 13.5, color: C.inkSoft }}>Ketma-ketlik yo'q — bugun to'liq qabul qilib boshlang</span>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 /* Shifokor: bitta bemor sahifasi — retsept + statistika */
 function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
   const [patient, setPatient] = useState(null);
@@ -968,6 +1061,10 @@ function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
           <StatBox label="Bugun qabul qilingan" value={`${stats.takenToday}/${stats.totalToday}`} color={C.sage} />
           <StatBox label="3 kunda o'tkazib yuborilgan" value={stats.missed3} color={stats.missed3 >= 3 ? C.red : C.teal} />
         </div>
+
+        {/* Haftalik tarix */}
+        <SectionTitle icon={<CalendarDays size={18} color={C.teal} />}>So'nggi 7 kun</SectionTitle>
+        <WeeklyHistory code={code} refreshKey={(rx.medicines || []).length} />
 
         {/* Retsept */}
         <SectionTitle icon={<ClipboardList size={18} color={C.teal} />}>Retsept</SectionTitle>
@@ -1495,6 +1592,10 @@ function PatientApp({ code, onLogout, onError }) {
             ))}
           </div>
         )}
+
+        {/* Haftalik tarix */}
+        <SectionTitle icon={<CalendarDays size={18} color={C.teal} />}>So'nggi 7 kun</SectionTitle>
+        <WeeklyHistory code={code} refreshKey={log.join(',')} />
 
         {/* Bildirishnoma boshqaruvi */}
         <SectionTitle icon={<Bell size={18} color={C.teal} />}>Eslatmalar</SectionTitle>
