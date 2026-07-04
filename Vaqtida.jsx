@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Stethoscope, User, UserPlus, Pill, Bell, BellOff, Check, AlertTriangle,
   Trash2, Pencil, Plus, ArrowLeft, LogOut, Copy, X, ChevronRight, Clock,
-  Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files, Lock, Mail, CalendarDays, Phone,
+  Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files, Lock, Mail, CalendarDays, Phone, Type,
 } from 'lucide-react';
 import { store, hasBackend, auth } from './db.js';
 
@@ -300,8 +300,17 @@ export default function App() {
   const [settings, setSettings] = useState({ role: null, code: null });
   const [globalError, setGlobalError] = useState(null);
   const [authUser, setAuthUser] = useState(null);
+  const [bigFont, setBigFont] = useState(false);
 
   const reportError = useCallback((msg) => setGlobalError(msg), []);
+
+  const toggleBigFont = () => {
+    setBigFont((v) => {
+      const next = !v;
+      store.set('bigFont', next, false).catch(() => {});
+      return next;
+    });
+  };
 
   // Auth sessiyasini kuzatish (bulut rejimida)
   useEffect(() => {
@@ -325,6 +334,8 @@ export default function App() {
       try {
         const s = await store.get('settings', false);
         if (s && s.role) setSettings(s);
+        const bf = await store.get('bigFont', false);
+        if (bf) setBigFont(true);
       } catch (e) {
         reportError("Sozlamalarni o'qishda xatolik yuz berdi. Sahifani yangilab ko'ring.");
       } finally {
@@ -350,6 +361,7 @@ export default function App() {
     persistSettings({ role: null, code: null });
   };
 
+  const scale = bigFont ? 1.25 : 1;
   const shell = (content) => (
     <div
       style={{
@@ -360,7 +372,18 @@ export default function App() {
         fontFamily: SANS,
       }}
     >
-      <div style={{ width: '100%', maxWidth: 480, minHeight: '100vh', background: C.paper, position: 'relative', boxShadow: '0 0 40px rgba(0,0,0,0.25)' }}>
+      <div
+        style={{
+          width: '100%',
+          // zoom kengaytiradi — gorizontal siljish bo'lmasligi uchun kenglikni moslaymiz
+          maxWidth: `min(480px, ${100 / scale}vw)`,
+          minHeight: `${100 / scale}vh`,
+          zoom: scale,
+          background: C.paper,
+          position: 'relative',
+          boxShadow: '0 0 40px rgba(0,0,0,0.25)',
+        }}
+      >
         {globalError && (
           <div style={{ padding: '12px 16px 0' }}>
             <Banner type="error" icon={<AlertTriangle size={18} />} onClose={() => setGlobalError(null)} title="Xatolik">
@@ -369,6 +392,25 @@ export default function App() {
           </div>
         )}
         {content}
+
+        {/* Katta shrift toggle — har doim ko'rinadigan */}
+        <button
+          onClick={toggleBigFont}
+          title="Katta shrift rejimi"
+          aria-pressed={bigFont}
+          style={{
+            position: 'fixed', right: 14, bottom: 14, zIndex: 60,
+            display: 'inline-flex', alignItems: 'center', gap: 7,
+            padding: '9px 13px', borderRadius: 24, cursor: 'pointer',
+            fontFamily: SANS, fontSize: 13.5, fontWeight: 700,
+            background: bigFont ? C.gold : C.white,
+            color: bigFont ? C.tealDeep : C.teal,
+            border: `1.5px solid ${bigFont ? C.gold : C.line}`,
+            boxShadow: '0 3px 10px rgba(27,48,56,0.18)',
+          }}
+        >
+          <Type size={17} /> {bigFont ? 'Odatiy shrift' : 'Katta shrift'}
+        </button>
       </div>
     </div>
   );
