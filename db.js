@@ -52,7 +52,27 @@ export const store = {
       if (error) throw error;
       return;
     }
-    localStorage.setItem((shared ? 's::' : 'p::') + key, JSON.stringify(value));
+    const storageKey = (shared ? 's::' : 'p::') + key;
+    if (value === null || value === undefined) {
+      localStorage.removeItem(storageKey);
+      return;
+    }
+    localStorage.setItem(storageKey, JSON.stringify(value));
+  },
+
+  /* Kalit prefiksiga mos HAMMA yozuvlarni o'chiradi (masalan "log:{code}:").
+     Bemor o'chirilganda barcha kunlik jurnallarni tozalash uchun kerak. */
+  async removePrefixed(prefix) {
+    if (sb) {
+      const { error } = await sb.from(TABLE).delete().like('key', `${prefix}%`);
+      if (error) throw error;
+      return;
+    }
+    const full = 's::' + prefix;
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(full)) localStorage.removeItem(k);
+    }
   },
 
   /* Real-time (ixtiyoriy). Backend yo'q bo'lsa — no-op.

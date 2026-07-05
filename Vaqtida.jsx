@@ -989,9 +989,12 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
     setSaving(true);
     try {
       const existing = (await store.get(`patients:${doctorId}`, true)) || [];
+      // Kod BUTUN tizim bo'yicha noyob bo'lishi kerak (patient:{code} umumiy
+      // kalit fazosi) — faqat shu shifokorning ro'yxati bilan solishtirish
+      // yetarli emas, boshqa shifokor xuddi shu kodni yaratib qo'yishi mumkin.
       let code = gen6();
       let guard = 0;
-      while (existing.some((p) => p.code === code) && guard < 50) {
+      while ((await store.get(`patient:${code}`, true)) && guard < 50) {
         code = gen6();
         guard++;
       }
@@ -1411,6 +1414,10 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
       await store.set(`patients:${doctorId}`, list.filter((p) => p.code !== code), true);
       await store.set(`patient:${code}`, null, true);
       await store.set(`rx:${code}`, null, true);
+      await store.set(`audit:${code}`, null, true);
+      await store.set(`push:${code}`, null, true);
+      await store.removePrefixed(`log:${code}:`);
+      await store.removePrefixed(`pushlog:${code}:`);
       onDeletedPatient();
     } catch (e) {
       onError("Bemorni o'chirib bo'lmadi.");
