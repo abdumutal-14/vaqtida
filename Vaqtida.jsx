@@ -1281,6 +1281,7 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
   const [eYear, setEYear] = useState('');
   const [showAudit, setShowAudit] = useState(false);
   const [audit, setAudit] = useState(null);
+  const [quickMode, setQuickMode] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -1350,6 +1351,24 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
   const deleteMed = async (id) => {
     if (!window.confirm('Bu dorini o\'chirasizmi?')) return;
     await saveRx((rx.medicines || []).filter((m) => m.id !== id), 'dori o\'chirildi');
+  };
+
+  /* Umumiy retsept: avval faqat dori nomlarini tez kiritish, doza/vaqt
+     keyinroq har biri uchun alohida belgilanadi (needsSetup = true). */
+  const addQuickMeds = async (names) => {
+    const clean = names.map((n) => n.trim()).filter(Boolean);
+    if (!clean.length) return onError('Kamida bitta dori nomini kiriting.');
+    const newMeds = clean.map((name) => ({
+      id: uid(),
+      name,
+      dosage: '',
+      times: [],
+      durationDays: null,
+      startDate: todayStr(),
+      instructions: '',
+    }));
+    await saveRx([...(rx.medicines || []), ...newMeds], `umumiy retseptga qo'shildi (${newMeds.length} ta dori)`);
+    setQuickMode(false);
   };
 
   /* --- Retsept shablonlari --- */
@@ -1567,11 +1586,18 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
             onCancel={() => setEditing(null)}
             onSave={upsertMed}
           />
+        ) : quickMode ? (
+          <QuickRxForm onCancel={() => setQuickMode(false)} onSave={addQuickMeds} />
         ) : (
           <>
-            <Btn variant="gold" full onClick={() => setEditing('new')} style={{ marginTop: 12 }}>
-              <Plus size={18} /> Dori qo'shish
-            </Btn>
+            <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+              <Btn variant="gold" onClick={() => setQuickMode(true)} style={{ flex: 1 }}>
+                <ClipboardList size={18} /> Umumiy retsept yozish
+              </Btn>
+              <Btn variant="ghost" onClick={() => setEditing('new')} style={{ flex: 1 }}>
+                <Plus size={18} /> Bitta dori
+              </Btn>
+            </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
               {templates.length > 0 && (
                 <Btn variant="quiet" onClick={() => setTplMode('pick')} style={{ flex: 1, fontSize: 14 }}>
@@ -1664,32 +1690,46 @@ function StatBox({ label, value, color }) {
 
 function MedCard({ med, onEdit, onDelete }) {
   const end = medEndDate(med);
+  const needsSetup = !med.dosage.trim() || !(med.times || []).length;
   return (
-    <Card>
+    <Card style={needsSetup ? { border: `1.5px solid ${C.gold}`, background: '#FFFDF7' } : undefined}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Pill size={18} color={C.gold} />
             <div style={{ fontFamily: SANS, fontSize: 17, fontWeight: 700, color: C.ink }}>{med.name}</div>
           </div>
-          <div style={{ fontFamily: SANS, fontSize: 13.5, color: C.inkSoft, marginTop: 4 }}>{med.dosage}</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-            {(med.times || []).map((t) => (
-              <span key={t} style={{ fontFamily: SANS, fontSize: 13, fontWeight: 600, color: C.teal, background: '#E9F0F1', padding: '4px 9px', borderRadius: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                <Clock size={13} /> {t}
-              </span>
-            ))}
-          </div>
-          <div style={{ fontFamily: SANS, fontSize: 12.5, color: C.inkSoft, marginTop: 8 }}>
-            {med.durationDays ? `${med.durationDays} kun` : 'Doimiy'} · boshlangan: {med.startDate}
-            {end && ` · tugaydi: ${end}`}
-          </div>
-          {med.instructions && (
-            <div style={{ fontFamily: SANS, fontSize: 13, color: C.ink, marginTop: 6, fontStyle: 'italic' }}>“{med.instructions}”</div>
+          {needsSetup ? (
+            <div style={{ fontFamily: SANS, fontSize: 13, color: '#7A5A12', marginTop: 4, fontWeight: 600 }}>
+              Doza va qabul vaqti hali belgilanmagan
+            </div>
+          ) : (
+            <>
+              <div style={{ fontFamily: SANS, fontSize: 13.5, color: C.inkSoft, marginTop: 4 }}>{med.dosage}</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                {(med.times || []).map((t) => (
+                  <span key={t} style={{ fontFamily: SANS, fontSize: 13, fontWeight: 600, color: C.teal, background: '#E9F0F1', padding: '4px 9px', borderRadius: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <Clock size={13} /> {t}
+                  </span>
+                ))}
+              </div>
+              <div style={{ fontFamily: SANS, fontSize: 12.5, color: C.inkSoft, marginTop: 8 }}>
+                {med.durationDays ? `${med.durationDays} kun` : 'Doimiy'} · boshlangan: {med.startDate}
+                {end && ` · tugaydi: ${end}`}
+              </div>
+              {med.instructions && (
+                <div style={{ fontFamily: SANS, fontSize: 13, color: C.ink, marginTop: 6, fontStyle: 'italic' }}>“{med.instructions}”</div>
+              )}
+            </>
+          )}
+          {needsSetup && (
+            <Btn variant="gold" onClick={onEdit} style={{ marginTop: 10, padding: '10px 14px', fontSize: 14 }}>
+              <Clock size={15} /> Doza va vaqtni belgilash
+            </Btn>
           )}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <button onClick={onEdit} style={iconBtn}><Pencil size={16} /></button>
+          {!needsSetup && <button onClick={onEdit} style={iconBtn}><Pencil size={16} /></button>}
           <button onClick={onDelete} style={{ ...iconBtn, color: C.red }}><Trash2 size={16} /></button>
         </div>
       </div>
@@ -1782,6 +1822,59 @@ function MedForm({ initial, onCancel, onSave }) {
       </Field>
 
       <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+        <Btn variant="ghost" onClick={onCancel} style={{ flex: 1 }}>Bekor qilish</Btn>
+        <Btn variant="gold" onClick={save} style={{ flex: 1 }}>Saqlash</Btn>
+      </div>
+    </Card>
+  );
+}
+
+/* Umumiy retsept: tez orada faqat dori nomlarini yozish — doza va qabul
+   vaqtini har biri uchun keyinroq alohida belgilaydi (MedCard'dagi
+   "Belgilash" tugmasi orqali). */
+function QuickRxForm({ onCancel, onSave }) {
+  const [names, setNames] = useState(['']);
+  const [err, setErr] = useState(null);
+
+  const setName = (i, v) => setNames((ns) => ns.map((n, j) => (j === i ? v : n)));
+  const addRow = () => setNames((ns) => [...ns, '']);
+  const removeRow = (i) => setNames((ns) => (ns.length > 1 ? ns.filter((_, j) => j !== i) : ns));
+
+  const save = () => {
+    const clean = names.map((n) => n.trim()).filter(Boolean);
+    if (!clean.length) return setErr('Kamida bitta dori nomini kiriting.');
+    onSave(clean);
+  };
+
+  return (
+    <Card style={{ marginTop: 12, border: `1.5px solid ${C.gold}`, background: '#FFFDF7' }}>
+      <div style={{ fontFamily: SERIF, fontSize: 18, color: C.tealDeep, fontWeight: 600, marginBottom: 4 }}>Umumiy retsept</div>
+      <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 12, lineHeight: 1.5 }}>
+        Avval faqat dori nomlarini yozing. Doza va qabul vaqtini har biri uchun keyinroq alohida belgilaysiz.
+      </div>
+      {err && <Banner type="error" icon={<AlertTriangle size={18} />} onClose={() => setErr(null)}>{err}</Banner>}
+
+      <div style={{ display: 'grid', gap: 8, marginBottom: 8 }}>
+        {names.map((n, i) => (
+          <div key={i} style={{ display: 'flex', gap: 8 }}>
+            <input
+              style={{ ...inputStyle, flex: 1 }}
+              value={n}
+              onChange={(e) => setName(i, e.target.value)}
+              placeholder="Masalan: Enalapril"
+              onKeyDown={(e) => e.key === 'Enter' && addRow()}
+            />
+            <button onClick={() => removeRow(i)} disabled={names.length <= 1} style={{ ...iconBtn, width: 46, opacity: names.length <= 1 ? 0.4 : 1 }}>
+              <Trash2 size={16} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <Btn variant="quiet" onClick={addRow} style={{ padding: '10px 12px', fontSize: 14 }}>
+        <Plus size={15} /> Yana dori
+      </Btn>
+
+      <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
         <Btn variant="ghost" onClick={onCancel} style={{ flex: 1 }}>Bekor qilish</Btn>
         <Btn variant="gold" onClick={save} style={{ flex: 1 }}>Saqlash</Btn>
       </div>
@@ -2083,6 +2176,8 @@ function PatientApp({ code, onLogout, onError }) {
 
   // Faol dorilar (bugun amal qiladigan)
   const activeMeds = (rx.medicines || []).filter((m) => medActiveOn(m, day));
+  // Shifokor yozgan, ammo hali qabul vaqti belgilanmagan dorilar bormi?
+  const hasUnscheduled = activeMeds.some((m) => !(m.times || []).length);
 
   // Bugungi dozalar ro'yxati
   const doses = [];
@@ -2244,7 +2339,9 @@ function PatientApp({ code, onLogout, onError }) {
         <SectionTitle icon={<Clock size={18} color={C.teal} />}>Bugungi kun aylanasi</SectionTitle>
         <Card style={{ padding: '18px 10px' }}>
           {doses.length === 0 ? (
-            <div style={{ textAlign: 'center', color: C.inkSoft, padding: 20 }}>Bugun uchun tayinlangan dori yo'q.</div>
+            <div style={{ textAlign: 'center', color: C.inkSoft, padding: 20 }}>
+              {hasUnscheduled ? "Shifokoringiz dori yozgan, ammo qabul vaqtlari hali belgilanmagan." : "Bugun uchun tayinlangan dori yo'q."}
+            </div>
           ) : (
             <>
               <DayArc doses={doses} now={now} />
@@ -2258,7 +2355,9 @@ function PatientApp({ code, onLogout, onError }) {
         {/* Dori jadvali (read-only, faqat belgilash mumkin) */}
         <SectionTitle icon={<Pill size={18} color={C.teal} />}>Bugungi dorilar</SectionTitle>
         {doses.length === 0 ? (
-          <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 22 }}>Hozircha faol dori yo'q. Bu — yaxshi belgi bo'lishi mumkin 🙂</Card>
+          <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 22 }}>
+            {hasUnscheduled ? "Shifokoringiz retsept yozgan, ammo qabul vaqtlari hali belgilanmagan. Tez orada belgilanadi." : "Hozircha faol dori yo'q. Bu — yaxshi belgi bo'lishi mumkin 🙂"}
+          </Card>
         ) : (
           <div style={{ display: 'grid', gap: 10 }}>
             {doses.map((d) => (
