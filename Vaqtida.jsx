@@ -881,6 +881,9 @@ function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
   const [selected, setSelected] = useState(null); // code
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0); // real-time qayta hisoblash uchun
+  const [search, setSearch] = useState('');
+  const [onlyDanger, setOnlyDanger] = useState(false);
+  const [overall, setOverall] = useState(null);
   const patientsRef = useRef([]);
   useEffect(() => { patientsRef.current = patients; }, [patients]);
 
@@ -910,6 +913,40 @@ function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
     });
     return off;
   }, [doctorId, loadPatients]);
+
+  // Barcha bemorlar bo'yicha umumiy qabul qilish foizi (bugun + so'nggi 7 kun).
+  // Bir nechta bemorda ketma-ket real-time o'zgarish bo'lsa, har bir "tick"
+  // hisoblashni qaytadan boshlab yuborishi mumkin (ko'p bemorda hisoblash
+  // sekin) — shu sabab bir zum kutib (debounce), o'zgarishlar tinchigach
+  // BIR marta to'liq hisoblaymiz, aks holda natija hech qachon yangilanmay
+  // qolishi mumkin edi.
+  useEffect(() => {
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      if (!patients.length) { setOverall({ todayTaken: 0, todayTotal: 0, weekTaken: 0, weekTotal: 0, dangerCodes: [] }); return; }
+      let todayTaken = 0, todayTotal = 0, weekTaken = 0, weekTotal = 0;
+      const dangerCodes = [];
+      for (const p of patients) {
+        try {
+          const s = await computeStats(p.code);
+          todayTaken += s.takenToday;
+          todayTotal += s.totalToday;
+          if (s.missed3 >= 3) dangerCodes.push(p.code);
+          const w = await computeWeek(p.code);
+          for (const d of w.days) { weekTaken += d.taken; weekTotal += d.total; }
+        } catch (e) { /* bitta bemorda xato bo'lsa ham davom etamiz */ }
+      }
+      if (!cancelled) setOverall({ todayTaken, todayTotal, weekTaken, weekTotal, dangerCodes });
+    }, 700);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [patients, tick]);
+
+  const filtered = patients.filter((p) => {
+    if (onlyDanger && !(overall?.dangerCodes || []).includes(p.code)) return false;
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return p.name.toLowerCase().includes(q) || p.diagnosis.toLowerCase().includes(q) || p.code.includes(q);
+  });
 
   if (view === 'patient' && selected) {
     return (
@@ -946,15 +983,58 @@ function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
       <div style={{ padding: 16 }}>
         <DoctorAddPatient doctorId={doctorId} doctorProfile={doctorProfile} onAdded={loadPatients} onError={onError} />
 
+        {patients.length > 0 && overall && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 4 }}>
+            <StatBox
+              label="Bugungi qabul foizi (barcha bemorlar)"
+              value={overall.todayTotal ? `${Math.round((overall.todayTaken / overall.todayTotal) * 100)}%` : '—'}
+              color={C.sage}
+            />
+            <StatBox
+              label="So'nggi 7 kun qabul foizi"
+              value={overall.weekTotal ? `${Math.round((overall.weekTaken / overall.weekTotal) * 100)}%` : '—'}
+              color={C.teal}
+            />
+          </div>
+        )}
+
         <SectionTitle icon={<Users size={18} color={C.teal} />}>Bemorlar ({patients.length})</SectionTitle>
+
+        {patients.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ position: 'relative', marginBottom: 8 }}>
+              <Search size={17} style={{ position: 'absolute', left: 12, top: 13, color: C.inkSoft }} />
+              <input
+                style={{ ...inputStyle, paddingLeft: 38 }}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Ism, tashxis yoki kod bo'yicha qidirish"
+              />
+            </div>
+            <button
+              onClick={() => setOnlyDanger((v) => !v)}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 20,
+                border: `1.5px solid ${onlyDanger ? C.red : C.line}`,
+                background: onlyDanger ? '#F9E9E6' : C.white,
+                color: onlyDanger ? C.red : C.inkSoft,
+                fontFamily: SANS, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              <ShieldAlert size={14} /> Faqat diqqat talab qiladiganlar{overall?.dangerCodes?.length ? ` (${overall.dangerCodes.length})` : ''}
+            </button>
+          </div>
+        )}
 
         {loading ? (
           <div style={{ color: C.inkSoft, padding: 20, textAlign: 'center' }}>Yuklanmoqda…</div>
         ) : patients.length === 0 ? (
           <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 26 }}>Hozircha bemor yo'q. Yuqoridan yangi bemor qo'shing.</Card>
+        ) : filtered.length === 0 ? (
+          <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 26 }}>Qidiruvga mos bemor topilmadi.</Card>
         ) : (
           <div style={{ display: 'grid', gap: 10 }}>
-            {patients
+            {filtered
               .slice()
               .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
               .map((p) => (
