@@ -2,9 +2,10 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Stethoscope, User, UserPlus, Pill, Bell, BellOff, Check, AlertTriangle,
   Trash2, Pencil, Plus, ArrowLeft, LogOut, Copy, X, ChevronRight, Clock,
-  Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files, Lock, Mail, CalendarDays, Phone, Type,
+  Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files, Lock, Mail, CalendarDays, Phone, Type, Download,
 } from 'lucide-react';
 import { store, hasBackend, auth } from './db.js';
+import { pushSupported, subscribeToPush, getPushState } from './push.js';
 
 /* =========================================================================
    "Vaqtida" — dori qabul qilishni nazorat qiluvchi mobil-veb ilova
@@ -1559,6 +1560,8 @@ function PatientApp({ code, onLogout, onError }) {
   const [notifPerm, setNotifPerm] = useState(typeof Notification !== 'undefined' ? Notification.permission : 'unavailable');
   const [dismissedReminder, setDismissedReminder] = useState(false);
   const [liveMsg, setLiveMsg] = useState(null);
+  const [pushOn, setPushOn] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState(null);
 
   const audioRef = useRef(null);
   const beepedRef = useRef(new Set()); // qaytariqni oldini olish uchun
@@ -1608,6 +1611,25 @@ function PatientApp({ code, onLogout, onError }) {
     const id = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(id);
   }, []);
+
+  // Push obuna holatini tekshirish
+  useEffect(() => {
+    getPushState().then(setPushOn).catch(() => {});
+  }, []);
+
+  // "Ilovani o'rnatish" (PWA) taklifini ushlab qolish
+  useEffect(() => {
+    const handler = (e) => { e.preventDefault(); setInstallPrompt(e); };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const doInstall = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    try { await installPrompt.userChoice; } catch (e) {}
+    setInstallPrompt(null);
+  };
 
   /* Beep (Web Audio) */
   const beep = useCallback(() => {
@@ -1704,6 +1726,16 @@ function PatientApp({ code, onLogout, onError }) {
       // audio kontekstni foydalanuvchi harakati bilan ochib qo'yamiz
       if (!audioRef.current) audioRef.current = new (window.AudioContext || window.webkitAudioContext)();
       if (audioRef.current.state === 'suspended') audioRef.current.resume();
+      // Web Push obunasi (fon bildirishnomasi uchun asos — server 2-bosqichda yuboradi)
+      if (p === 'granted' && pushSupported()) {
+        try {
+          await subscribeToPush(code);
+          setPushOn(true);
+        } catch (e) {
+          // Push obuna bo'lmadi — ilova ochiq turgandagi eslatma baribir ishlaydi
+          setPushOn(false);
+        }
+      }
     } catch (e) {
       onError('Bildirishnoma ruxsatini olishda muammo.');
     }
@@ -1810,13 +1842,23 @@ function PatientApp({ code, onLogout, onError }) {
 
         {/* Bildirishnoma boshqaruvi */}
         <SectionTitle icon={<Bell size={18} color={C.teal} />}>Eslatmalar</SectionTitle>
+
+        {installPrompt && (
+          <Btn variant="gold" full onClick={doInstall} style={{ marginBottom: 10 }}>
+            <Download size={18} /> Ilovani telefonga o'rnatish
+          </Btn>
+        )}
+
         {notifPerm === 'default' && (
           <Btn variant="primary" full onClick={enableNotif}>
             <Bell size={18} /> Bildirishnomalarni yoqish
           </Btn>
         )}
         {notifPerm === 'granted' && (
-          <Banner type="success" icon={<Check size={18} />}>Bildirishnomalar yoqilgan. Dori vaqti kelganda ogohlantiramiz.</Banner>
+          <Banner type="success" icon={<Check size={18} />}>
+            Bildirishnomalar yoqilgan. Dori vaqti kelganda ogohlantiramiz.
+            {pushOn && <div style={{ marginTop: 4 }}>Fon bildirishnomasiga <b>obuna bo'ldingiz</b>.</div>}
+          </Banner>
         )}
         {notifPerm === 'denied' && (
           <Banner type="warn" icon={<BellOff size={18} />}>Bildirishnomalar bloklangan. Brauzer sozlamalaridan (qulf belgisi → ruxsatlar) yoqishingiz mumkin.</Banner>
@@ -1826,7 +1868,7 @@ function PatientApp({ code, onLogout, onError }) {
         )}
 
         <Banner type="info" icon={<Info size={18} />} title="Muhim">
-          Eslatmalar <b>faqat ilova ochiq turganda</b> ishlaydi. Ilova yopiq bo'lsa ham eslatma kelishi uchun (haqiqiy push-bildirishnoma) alohida mobil ilova va server kerak bo'ladi — buni hozircha va'da qila olmaymiz.
+          Hozircha eslatmalar <b>ilova ochiq turganda</b> ishlaydi. Fon bildirishnomasi (ilova yopiq bo'lsa ham) uchun asos tayyorlandi — u <b>server tomoni ulangач</b> to'liq ishga tushadi. iPhone'da ilovani avval <b>bosh ekranga qo'shish</b> kerak.
         </Banner>
       </div>
     </div>

@@ -7,3 +7,12 @@ createRoot(document.getElementById('root')).render(
     <App />
   </React.StrictMode>
 );
+
+// Service Worker'ni ro'yxatdan o'tkazish (PWA + Web Push)
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((e) => {
+      console.warn('Service Worker ro\'yxatdan o\'tmadi:', e);
+    });
+  });
+}
