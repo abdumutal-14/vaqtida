@@ -3,6 +3,7 @@ import {
   Stethoscope, User, UserPlus, Pill, Bell, BellOff, Check, AlertTriangle,
   Trash2, Pencil, Plus, ArrowLeft, LogOut, Copy, X, ChevronRight, Clock,
   Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files, Lock, Mail, CalendarDays, Phone, Type, Download,
+  Store, Search, BadgeCheck, XCircle, IdCard, History,
 } from 'lucide-react';
 import { store, hasBackend, auth } from './db.js';
 import { pushSupported, subscribeToPush, getPushState } from './push.js';
@@ -322,6 +323,8 @@ export default function App() {
   const [settings, setSettings] = useState({ role: null, code: null });
   const [globalError, setGlobalError] = useState(null);
   const [authUser, setAuthUser] = useState(null);
+  // undefined = hali tekshirilmagan, null = profil yo'q, obyekt = profil bor
+  const [doctorProfile, setDoctorProfile] = useState(undefined);
   const [bigFont, setBigFont] = useState(false);
 
   const reportError = useCallback((msg) => setGlobalError(msg), []);
@@ -341,6 +344,15 @@ export default function App() {
     const off = auth.onChange((u) => setAuthUser(u));
     return off;
   }, []);
+
+  // Shifokor profili (F.I.Sh + litsenziya) — javobgarlik uchun majburiy
+  useEffect(() => {
+    if (!hasBackend || !authUser) { setDoctorProfile(undefined); return; }
+    setDoctorProfile(undefined);
+    store.get(`doctor:${authUser.id}`, true)
+      .then((p) => setDoctorProfile(p || null))
+      .catch(() => { reportError("Shifokor profilini yuklab bo'lmadi."); setDoctorProfile(null); });
+  }, [authUser, reportError]);
 
   useEffect(() => {
     // Shriftlarni yuklash (bir marta)
@@ -380,6 +392,7 @@ export default function App() {
   const doctorLogout = async () => {
     try { await auth.signOut(); } catch (e) {}
     setAuthUser(null);
+    setDoctorProfile(undefined);
     persistSettings({ role: null, code: null });
   };
 
@@ -446,9 +459,30 @@ export default function App() {
   if (!settings.role) return shell(<RoleSelect onPick={(role) => persistSettings({ role, code: null })} />);
   if (settings.role === 'doctor') {
     if (hasBackend && !authUser) return shell(<DoctorAuth onBack={logout} onError={reportError} />);
+    if (hasBackend && authUser && doctorProfile === undefined)
+      return shell(<div style={{ padding: 40, textAlign: 'center', color: C.inkSoft }}>Yuklanmoqda…</div>);
+    if (hasBackend && authUser && doctorProfile === null) {
+      return shell(
+        <DoctorProfileSetup
+          uid={authUser.id}
+          email={authUser.email}
+          onDone={(p) => setDoctorProfile(p)}
+          onError={reportError}
+        />
+      );
+    }
     const doctorId = authUser?.id || 'local';
-    return shell(<DoctorApp doctorId={doctorId} email={authUser?.email} onLogout={doctorLogout} onError={reportError} />);
+    return shell(
+      <DoctorApp
+        doctorId={doctorId}
+        email={authUser?.email}
+        doctorProfile={doctorProfile}
+        onLogout={doctorLogout}
+        onError={reportError}
+      />
+    );
   }
+  if (settings.role === 'pharmacy') return shell(<PharmacyApp onBack={logout} onError={reportError} />);
   if (settings.role === 'patient' && !settings.code)
     return shell(<PatientLogin onLogin={(code) => persistSettings({ role: 'patient', code })} onBack={logout} onError={reportError} />);
   return shell(<PatientApp code={settings.code} onLogout={logout} onError={reportError} />);
@@ -497,6 +531,17 @@ function RoleSelect({ onPick }) {
           </div>
           <ChevronRight color={C.inkSoft} />
         </Card>
+
+        <Card onClick={() => onPick('pharmacy')} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: 18 }}>
+          <div style={{ width: 52, height: 52, borderRadius: 14, background: '#EFEAE0', color: '#6B5B3E', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Store size={26} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: SERIF, fontSize: 19, color: C.tealDeep, fontWeight: 600 }}>Men dorixonachiman</div>
+            <div style={{ fontFamily: SANS, fontSize: 13.5, color: C.inkSoft }}>Bemor kodi orqali retseptni tekshiraman</div>
+          </div>
+          <ChevronRight color={C.inkSoft} />
+        </Card>
       </div>
 
       <div style={{ textAlign: 'center', margin: '16px 0 8px' }}>
@@ -530,6 +575,8 @@ function DoctorAuth({ onBack }) {
   const [mode, setMode] = useState('login'); // login | signup
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [licenseNumber, setLicenseNumber] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [info, setInfo] = useState(null);
@@ -540,14 +587,27 @@ function DoctorAuth({ onBack }) {
     const em = email.trim();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return setErr('To\'g\'ri email kiriting.');
     if (password.length < 6) return setErr('Parol kamida 6 belgidan iborat bo\'lishi kerak.');
+    if (mode === 'signup' && !fullName.trim()) return setErr('F.I.Sh. kiriting.');
+    if (mode === 'signup' && !licenseNumber.trim()) return setErr('Litsenziya/diplom raqamini kiriting.');
     setBusy(true);
     try {
       if (mode === 'signup') {
-        const { session } = await auth.signUp(em, password);
+        const { session, user } = await auth.signUp(em, password);
         if (!session) {
           // Email tasdiqlash yoqilgan bo'lsa
           setInfo('Hisob yaratildi. Emailingizni tasdiqlab, so\'ng kiring.');
           setMode('login');
+        } else if (user) {
+          // Profilni darrov saqlaymiz — javobgarlik uchun majburiy
+          try {
+            await store.set(`doctor:${user.id}`, {
+              uid: user.id,
+              email: em,
+              fullName: fullName.trim(),
+              licenseNumber: licenseNumber.trim(),
+              createdAt: Date.now(),
+            }, true);
+          } catch (e) { /* App darajasida profil yo'qligi qayta so'raladi */ }
         }
         // session bo'lsa — App auth.onChange orqali avtomatik kiradi
       } else {
@@ -582,6 +642,30 @@ function DoctorAuth({ onBack }) {
 
       {err && <Banner type="error" icon={<AlertTriangle size={18} />} onClose={() => setErr(null)}>{err}</Banner>}
       {info && <Banner type="success" icon={<Check size={18} />} onClose={() => setInfo(null)}>{info}</Banner>}
+
+      {mode === 'signup' && (
+        <>
+          <Field label="F.I.Sh.">
+            <input
+              style={inputStyle}
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="Masalan: Yusupova Nilufar Baxtiyorovna"
+            />
+          </Field>
+          <Field label="Litsenziya / diplom raqami" hint="Javobgarlik va bemorlar ishonchi uchun ko'rsatiladi">
+            <div style={{ position: 'relative' }}>
+              <IdCard size={18} style={{ position: 'absolute', left: 12, top: 14, color: C.inkSoft }} />
+              <input
+                style={{ ...inputStyle, paddingLeft: 40 }}
+                value={licenseNumber}
+                onChange={(e) => setLicenseNumber(e.target.value)}
+                placeholder="Masalan: VRC-2019-04521"
+              />
+            </div>
+          </Field>
+        </>
+      )}
 
       <Field label="Email">
         <div style={{ position: 'relative' }}>
@@ -628,6 +712,55 @@ function DoctorAuth({ onBack }) {
   );
 }
 
+/* Mavjud shifokor hisobida F.I.Sh/litsenziya bo'lmasa — bir martalik to'ldirish */
+function DoctorProfileSetup({ uid, email, onDone, onError }) {
+  const [fullName, setFullName] = useState('');
+  const [licenseNumber, setLicenseNumber] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const submit = async () => {
+    if (!fullName.trim()) return setErr('F.I.Sh. kiriting.');
+    if (!licenseNumber.trim()) return setErr('Litsenziya/diplom raqamini kiriting.');
+    setErr(null);
+    setBusy(true);
+    try {
+      const profile = { uid, email, fullName: fullName.trim(), licenseNumber: licenseNumber.trim(), createdAt: Date.now() };
+      await store.set(`doctor:${uid}`, profile, true);
+      onDone(profile);
+    } catch (e) {
+      onError("Profilni saqlab bo'lmadi. Qaytadan urinib ko'ring.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: '40px 24px' }}>
+      <div style={{ width: 60, height: 60, borderRadius: 16, background: '#E9F0F1', color: C.teal, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+        <IdCard size={30} />
+      </div>
+      <h1 style={{ fontFamily: SERIF, fontSize: 26, color: C.tealDeep, margin: '0 0 6px', fontWeight: 600 }}>Profilni to'ldiring</h1>
+      <p style={{ fontFamily: SANS, fontSize: 15, color: C.inkSoft, margin: '0 0 22px', lineHeight: 1.5 }}>
+        Bemorlar va dorixonalar retseptni kim yozganini ko'rishi uchun F.I.Sh. va litsenziya raqamingiz kerak.
+      </p>
+
+      {err && <Banner type="error" icon={<AlertTriangle size={18} />} onClose={() => setErr(null)}>{err}</Banner>}
+
+      <Field label="F.I.Sh.">
+        <input style={inputStyle} value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Masalan: Yusupova Nilufar Baxtiyorovna" />
+      </Field>
+      <Field label="Litsenziya / diplom raqami">
+        <input style={inputStyle} value={licenseNumber} onChange={(e) => setLicenseNumber(e.target.value)} placeholder="Masalan: VRC-2019-04521" onKeyDown={(e) => e.key === 'Enter' && submit()} />
+      </Field>
+
+      <Btn variant="primary" full onClick={submit} disabled={busy} style={{ marginTop: 4 }}>
+        {busy ? 'Saqlanmoqda…' : 'Saqlash va davom etish'}
+      </Btn>
+    </div>
+  );
+}
+
 /* ------------------------ Sarlavha (header) ------------------------ */
 function TopBar({ title, subtitle, onBack, right }) {
   return (
@@ -651,7 +784,7 @@ function TopBar({ title, subtitle, onBack, right }) {
 /* =========================================================================
    SHIFOKOR
    ========================================================================= */
-function DoctorApp({ doctorId, email, onLogout, onError }) {
+function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
   const [patients, setPatients] = useState([]);
   const [view, setView] = useState('list'); // list | patient
   const [selected, setSelected] = useState(null); // code
@@ -691,6 +824,7 @@ function DoctorApp({ doctorId, email, onLogout, onError }) {
     return (
       <DoctorPatient
         doctorId={doctorId}
+        doctorProfile={doctorProfile}
         code={selected}
         onBack={() => {
           setView('list');
@@ -711,7 +845,7 @@ function DoctorApp({ doctorId, email, onLogout, onError }) {
     <div>
       <TopBar
         title="Shifokor paneli"
-        subtitle={email || 'Bemorlar va retseptlar'}
+        subtitle={doctorProfile ? `${doctorProfile.fullName} · Litsenziya: ${doctorProfile.licenseNumber}` : (email || 'Bemorlar va retseptlar')}
         right={
           <Btn variant="quiet" onClick={onLogout} style={{ padding: '10px 12px', fontSize: 14 }}>
             <LogOut size={16} /> Chiqish
@@ -719,7 +853,7 @@ function DoctorApp({ doctorId, email, onLogout, onError }) {
         }
       />
       <div style={{ padding: 16 }}>
-        <DoctorAddPatient doctorId={doctorId} onAdded={loadPatients} onError={onError} />
+        <DoctorAddPatient doctorId={doctorId} doctorProfile={doctorProfile} onAdded={loadPatients} onError={onError} />
 
         <SectionTitle icon={<Users size={18} color={C.teal} />}>Bemorlar ({patients.length})</SectionTitle>
 
@@ -743,7 +877,7 @@ function DoctorApp({ doctorId, email, onLogout, onError }) {
 }
 
 /* Yangi bemor qo'shish */
-function DoctorAddPatient({ doctorId, onAdded, onError }) {
+function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [diagnosis, setDiagnosis] = useState('');
@@ -770,7 +904,17 @@ function DoctorAddPatient({ doctorId, onAdded, onError }) {
         code = gen6();
         guard++;
       }
-      const rec = { code, name: name.trim(), diagnosis: diagnosis.trim(), phone: phone.trim(), birthYear: birthYear ? Number(birthYear) : null, createdAt: Date.now() };
+      const rec = {
+        code,
+        name: name.trim(),
+        diagnosis: diagnosis.trim(),
+        phone: phone.trim(),
+        birthYear: birthYear ? Number(birthYear) : null,
+        createdAt: Date.now(),
+        doctorId,
+        doctorName: doctorProfile?.fullName || null,
+        doctorLicense: doctorProfile?.licenseNumber || null,
+      };
       await store.set(`patient:${code}`, rec, true);
       await store.set(`rx:${code}`, { medicines: [] }, true);
       await store.set(`patients:${doctorId}`, [...existing, rec], true);
@@ -1027,7 +1171,7 @@ function WeeklyHistory({ code, refreshKey }) {
 }
 
 /* Shifokor: bitta bemor sahifasi — retsept + statistika */
-function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
+function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDeletedPatient }) {
   const [patient, setPatient] = useState(null);
   const [rx, setRx] = useState({ medicines: [] });
   const [stats, setStats] = useState(null);
@@ -1041,6 +1185,8 @@ function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
   const [eDx, setEDx] = useState('');
   const [ePhone, setEPhone] = useState('');
   const [eYear, setEYear] = useState('');
+  const [showAudit, setShowAudit] = useState(false);
+  const [audit, setAudit] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -1071,12 +1217,29 @@ function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
     return off;
   }, [code, load]);
 
-  const saveRx = async (medicines) => {
+  const saveRx = async (medicines, action = 'updated') => {
     try {
-      const next = { medicines };
+      const next = {
+        medicines,
+        updatedAt: Date.now(),
+        updatedBy: { doctorId, doctorName: doctorProfile?.fullName || null, doctorLicense: doctorProfile?.licenseNumber || null },
+      };
       await store.set(`rx:${code}`, next, true);
       setRx(next);
       setStats(await computeStats(code));
+      // Javobgarlik uchun audit izi — kim, qachon, nima o'zgartirdi
+      try {
+        const auditList = (await store.get(`audit:${code}`, true)) || [];
+        const entry = {
+          at: Date.now(),
+          doctorId,
+          doctorName: doctorProfile?.fullName || null,
+          doctorLicense: doctorProfile?.licenseNumber || null,
+          action,
+          medicinesCount: medicines.length,
+        };
+        await store.set(`audit:${code}`, [...auditList, entry].slice(-100), true);
+      } catch (e) { /* audit yozilmasa ham retsept saqlanadi — jim o'tkazamiz */ }
     } catch (e) {
       onError("Retseptni saqlab bo'lmadi.");
     }
@@ -1086,13 +1249,13 @@ function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
     const list = rx.medicines || [];
     const exists = list.some((m) => m.id === med.id);
     const next = exists ? list.map((m) => (m.id === med.id ? med : m)) : [...list, med];
-    await saveRx(next);
+    await saveRx(next, exists ? 'dori tahrirlandi' : 'dori qo\'shildi');
     setEditing(null);
   };
 
   const deleteMed = async (id) => {
     if (!window.confirm('Bu dorini o\'chirasizmi?')) return;
-    await saveRx((rx.medicines || []).filter((m) => m.id !== id));
+    await saveRx((rx.medicines || []).filter((m) => m.id !== id), 'dori o\'chirildi');
   };
 
   /* --- Retsept shablonlari --- */
@@ -1101,7 +1264,7 @@ function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
   const applyTemplate = async (tpl) => {
     const newMeds = (tpl.medicines || []).map((m) => ({ ...stripMed(m), id: uid(), startDate: todayStr() }));
     if (!newMeds.length) return onError('Bu shablonda dori yo\'q.');
-    await saveRx([...(rx.medicines || []), ...newMeds]);
+    await saveRx([...(rx.medicines || []), ...newMeds], 'shablondan qo\'shildi');
     setTplMode(null);
   };
 
@@ -1250,7 +1413,45 @@ function DoctorPatient({ doctorId, code, onBack, onError, onDeletedPatient }) {
         <WeeklyHistory code={code} refreshKey={(rx.medicines || []).length} />
 
         {/* Retsept */}
-        <SectionTitle icon={<ClipboardList size={18} color={C.teal} />}>Retsept</SectionTitle>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <SectionTitle icon={<ClipboardList size={18} color={C.teal} />}>Retsept</SectionTitle>
+          <button
+            onClick={async () => {
+              const opening = !showAudit;
+              setShowAudit(opening);
+              if (opening) {
+                // Har safar ochilganda qaytadan yuklaymiz — audit yozuvi
+                // retsept saqlangandan bir zum keyin serverga tushishi mumkin,
+                // shuning uchun eski (keshlangan) natijani ko'rsatmaymiz.
+                setAudit(null);
+                try { setAudit((await store.get(`audit:${code}`, true)) || []); }
+                catch (e) { onError("O'zgarishlar tarixini yuklab bo'lmadi."); setAudit([]); }
+              }
+            }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.teal, display: 'flex', alignItems: 'center', gap: 5, fontFamily: SANS, fontSize: 13, fontWeight: 600 }}
+          >
+            <History size={15} /> Tarix
+          </button>
+        </div>
+
+        {showAudit && (
+          <Card style={{ marginBottom: 10, background: C.paperSoft }}>
+            {audit === null ? (
+              <div style={{ color: C.inkSoft, fontSize: 13.5 }}>Yuklanmoqda…</div>
+            ) : audit.length === 0 ? (
+              <div style={{ color: C.inkSoft, fontSize: 13.5 }}>Hali o'zgarish yo'q.</div>
+            ) : (
+              <div style={{ display: 'grid', gap: 6 }}>
+                {audit.slice().reverse().slice(0, 15).map((a, i) => (
+                  <div key={i} style={{ fontFamily: SANS, fontSize: 12.5, color: C.ink, borderBottom: i < audit.length - 1 ? `1px solid ${C.line}` : 'none', paddingBottom: 5 }}>
+                    <span style={{ color: C.inkSoft }}>{new Date(a.at).toLocaleString('uz-UZ')}</span> — {a.action}
+                    {a.doctorName && <span style={{ color: C.inkSoft }}> ({a.doctorName}{a.doctorLicense ? `, litsenziya: ${a.doctorLicense}` : ''})</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        )}
 
         {(rx.medicines || []).length === 0 && !editing && (
           <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 22 }}>Hali dori tayinlanmagan.</Card>
@@ -1487,6 +1688,133 @@ function MedForm({ initial, onCancel, onSave }) {
         <Btn variant="gold" onClick={save} style={{ flex: 1 }}>Saqlash</Btn>
       </div>
     </Card>
+  );
+}
+
+/* =========================================================================
+   DORIXONA — retsept tekshirish portali
+   Faqat bemorga ochiq (owner=null) yozuvlarni o'qiydi — autentifikatsiya kerak
+   emas, chunki maqsad tez tekshiruv (dorixonachi navbatda kutayotgan mijoz bilan).
+   ========================================================================= */
+function PharmacyApp({ onBack, onError }) {
+  const [code, setCode] = useState('');
+  const [checking, setChecking] = useState(false);
+  const [err, setErr] = useState(null);
+  const [result, setResult] = useState(null); // { patient, activeMeds }
+  const [drugQuery, setDrugQuery] = useState('');
+
+  const check = async () => {
+    const c = code.trim();
+    if (!/^\d{6}$/.test(c)) return setErr('Kod 6 xonali raqam bo\'lishi kerak.');
+    setChecking(true);
+    setErr(null);
+    setResult(null);
+    try {
+      const patient = await store.get(`patient:${c}`, true);
+      if (!patient) {
+        setErr('Bunday kod topilmadi. Bemordan kodni qaytadan so\'rang.');
+        setChecking(false);
+        return;
+      }
+      const rx = (await store.get(`rx:${c}`, true)) || { medicines: [] };
+      const today = todayStr();
+      const activeMeds = (rx.medicines || []).filter((m) => medActiveOn(m, today));
+      setResult({ patient, activeMeds });
+    } catch (e) {
+      onError("Tekshirib bo'lmadi. Internet aloqasini tekshiring.");
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  const reset = () => { setResult(null); setCode(''); setDrugQuery(''); setErr(null); };
+
+  const drugMatch = drugQuery.trim()
+    ? (result?.activeMeds || []).find((m) => m.name.toLowerCase().includes(drugQuery.trim().toLowerCase()))
+    : null;
+
+  return (
+    <div>
+      <TopBar title="Dorixona tekshiruvi" subtitle="Retsept haqiqiyligini tekshirish" onBack={onBack} />
+      <div style={{ padding: 16 }}>
+        {!result ? (
+          <>
+            <Banner type="info" icon={<Info size={18} />}>
+              Bemorning 6 xonali kodini kiriting — unga qaysi dorilar shifokor tomonidan tayinlanganini ko'rasiz.
+            </Banner>
+
+            {err && <Banner type="error" icon={<AlertTriangle size={18} />} onClose={() => setErr(null)}>{err}</Banner>}
+
+            <Field label="Bemor kodi">
+              <input
+                style={{ ...inputStyle, fontFamily: SERIF, fontSize: 26, textAlign: 'center', letterSpacing: 8, fontWeight: 700, color: C.tealDeep }}
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                placeholder="000000"
+                inputMode="numeric"
+                onKeyDown={(e) => e.key === 'Enter' && check()}
+              />
+            </Field>
+            <Btn variant="primary" full onClick={check} disabled={checking}>
+              <Search size={18} /> {checking ? 'Tekshirilmoqda…' : 'Tekshirish'}
+            </Btn>
+          </>
+        ) : (
+          <>
+            <Card style={{ marginBottom: 12 }}>
+              <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 2 }}>Bemor</div>
+              <div style={{ fontFamily: SERIF, fontSize: 19, color: C.tealDeep, fontWeight: 600 }}>{result.patient.name}</div>
+              {result.patient.doctorName ? (
+                <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginTop: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <IdCard size={14} /> Tayinlagan: {result.patient.doctorName} (litsenziya: {result.patient.doctorLicense || '—'})
+                </div>
+              ) : (
+                <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginTop: 6 }}>Shifokor ma'lumoti yo'q (eski yozuv)</div>
+              )}
+            </Card>
+
+            <Field label="Dori nomini tekshirish" hint="Ixtiyoriy — aniq shu dorini qidiring">
+              <input style={inputStyle} value={drugQuery} onChange={(e) => setDrugQuery(e.target.value)} placeholder="Masalan: Amoksitsillin" />
+            </Field>
+            {drugQuery.trim() && (
+              drugMatch ? (
+                <Banner type="success" icon={<BadgeCheck size={18} />}>
+                  <b>Ha</b> — "{drugMatch.name}" ushbu bemorga shifokor tomonidan tayinlangan ({drugMatch.dosage}).
+                </Banner>
+              ) : (
+                <Banner type="error" icon={<XCircle size={18} />}>
+                  <b>Yo'q</b> — "{drugQuery}" ushbu bemorning faol retseptida topilmadi.
+                </Banner>
+              )
+            )}
+
+            <SectionTitle icon={<ClipboardList size={18} color={C.teal} />}>Hozir faol dorilar ({result.activeMeds.length})</SectionTitle>
+            {result.activeMeds.length === 0 ? (
+              <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 22 }}>Bu bemorga hozir faol dori tayinlanmagan.</Card>
+            ) : (
+              <div style={{ display: 'grid', gap: 10 }}>
+                {result.activeMeds.map((m) => {
+                  const end = medEndDate(m);
+                  return (
+                    <Card key={m.id}>
+                      <div style={{ fontFamily: SANS, fontSize: 16.5, fontWeight: 700, color: C.ink }}>{m.name}</div>
+                      <div style={{ fontFamily: SANS, fontSize: 13.5, color: C.inkSoft, marginTop: 2 }}>{m.dosage}</div>
+                      <div style={{ fontFamily: SANS, fontSize: 12.5, color: C.inkSoft, marginTop: 6 }}>
+                        {m.durationDays ? `${m.durationDays} kun` : 'Doimiy'} · boshlangan: {m.startDate}{end && ` · tugaydi: ${end}`}
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+
+            <Btn variant="ghost" full onClick={reset} style={{ marginTop: 16 }}>
+              <Search size={16} /> Boshqa bemorni tekshirish
+            </Btn>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1807,6 +2135,11 @@ function PatientApp({ code, onLogout, onError }) {
         <Card style={{ background: C.teal, border: 'none', color: C.paper, marginBottom: 4 }}>
           <div style={{ fontFamily: SANS, fontSize: 13, opacity: 0.8 }}>Tashxisingiz</div>
           <div style={{ fontFamily: SERIF, fontSize: 20, fontWeight: 600, color: C.gold, marginTop: 2 }}>{patient.diagnosis}</div>
+          {patient.doctorName && (
+            <div style={{ fontFamily: SANS, fontSize: 12.5, opacity: 0.85, marginTop: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+              <IdCard size={13} /> Tayinlagan: {patient.doctorName}{patient.doctorLicense ? ` (litsenziya: ${patient.doctorLicense})` : ''}
+            </div>
+          )}
         </Card>
 
         {/* Kun aylanasi */}
