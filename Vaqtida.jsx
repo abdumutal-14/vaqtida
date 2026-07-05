@@ -3,9 +3,9 @@ import {
   Stethoscope, User, UserPlus, Pill, Bell, BellOff, Check, AlertTriangle,
   Trash2, Pencil, Plus, ArrowLeft, LogOut, Copy, X, ChevronRight, Clock,
   Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files, Lock, Mail, CalendarDays, Phone, Type, Download,
-  Store, Search, BadgeCheck, XCircle, IdCard, History,
+  Store, Search, BadgeCheck, XCircle, IdCard, History, KeyRound, ShieldCheck, RefreshCw,
 } from 'lucide-react';
-import { store, hasBackend, auth } from './db.js';
+import { store, hasBackend, auth, adminCreateDoctor } from './db.js';
 import { pushSupported, subscribeToPush, getPushState } from './push.js';
 
 /* =========================================================================
@@ -326,6 +326,7 @@ export default function App() {
   // undefined = hali tekshirilmagan, null = profil yo'q, obyekt = profil bor
   const [doctorProfile, setDoctorProfile] = useState(undefined);
   const [bigFont, setBigFont] = useState(false);
+  const isAdminRoute = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('admin') === '1';
 
   const reportError = useCallback((msg) => setGlobalError(msg), []);
 
@@ -456,6 +457,10 @@ export default function App() {
     );
   }
 
+  if (isAdminRoute) {
+    return shell(<AdminCreateDoctor onBack={() => { window.location.href = window.location.pathname; }} onError={reportError} />);
+  }
+
   if (!settings.role) return shell(<RoleSelect onPick={(role) => persistSettings({ role, code: null })} />);
   if (settings.role === 'doctor') {
     if (hasBackend && !authUser) return shell(<DoctorAuth onBack={logout} onError={reportError} />);
@@ -570,53 +575,169 @@ function RoleSelect({ onPick }) {
   );
 }
 
-/* ------------------------------ Shifokor: kirish/ro'yxat ------------------------------ */
-function DoctorAuth({ onBack }) {
-  const [mode, setMode] = useState('login'); // login | signup
+/* ------------------------------ Admin: shifokor hisobi yaratish ------------------------------
+   Yashirin yo'l: URL oxiriga "?admin=1" qo'shib ochiladi (RoleSelect'da ko'rinmaydi).
+   Admin kodi faqat serverda (Edge Function) tekshiriladi — mijozda saqlanmaydi,
+   faqat shu brauzer sessiyasida (sessionStorage) qulaylik uchun eslab qolinadi. */
+function AdminCreateDoctor({ onBack, onError }) {
+  const [secret, setSecret] = useState(() => sessionStorage.getItem('vaqtida_admin_secret') || '');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [licenseNumber, setLicenseNumber] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
-  const [info, setInfo] = useState(null);
+  const [created, setCreated] = useState(null);
+
+  const genPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+    let p = '';
+    for (let i = 0; i < 10; i++) p += chars[Math.floor(Math.random() * chars.length)];
+    setPassword(p);
+  };
 
   const submit = async () => {
     setErr(null);
-    setInfo(null);
+    setCreated(null);
+    const em = email.trim().toLowerCase();
+    if (!secret.trim()) return setErr('Admin kodini kiriting.');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return setErr("To'g'ri email kiriting.");
+    if (password.length < 6) return setErr('Parol kamida 6 belgi.');
+    if (!fullName.trim()) return setErr('F.I.Sh. kiriting.');
+    if (!licenseNumber.trim()) return setErr('Litsenziya/diplom raqamini kiriting.');
+    setBusy(true);
+    try {
+      await adminCreateDoctor(secret.trim(), { email: em, password, fullName: fullName.trim(), licenseNumber: licenseNumber.trim() });
+      sessionStorage.setItem('vaqtida_admin_secret', secret.trim());
+      setCreated({ email: em, password, fullName: fullName.trim(), licenseNumber: licenseNumber.trim() });
+      setEmail(''); setPassword(''); setFullName(''); setLicenseNumber('');
+    } catch (e) {
+      setErr(e.message || "Hisob yaratib bo'lmadi.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: '40px 24px' }}>
+      <button onClick={onBack} style={{ background: C.paperSoft, border: 'none', borderRadius: 10, width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: C.ink, marginBottom: 24 }}>
+        <ArrowLeft size={20} />
+      </button>
+
+      <div style={{ width: 60, height: 60, borderRadius: 16, background: '#EFEAE0', color: '#6B5B3E', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+        <ShieldCheck size={30} />
+      </div>
+      <h1 style={{ fontFamily: SERIF, fontSize: 26, color: C.tealDeep, margin: '0 0 6px', fontWeight: 600 }}>
+        Shifokor hisobi yaratish
+      </h1>
+      <p style={{ fontFamily: SANS, fontSize: 14.5, color: C.inkSoft, margin: '0 0 22px', lineHeight: 1.5 }}>
+        Litsenziya/diplom raqamini qo'lda tekshirgach, shifokor uchun hisob oching.
+        Login ma'lumotlarini shifokorga xavfsiz yo'l bilan (masalan, shaxsan yoki telefon orqali) yetkazing.
+      </p>
+
+      {err && <Banner type="error" icon={<AlertTriangle size={18} />} onClose={() => setErr(null)}>{err}</Banner>}
+      {created && (
+        <Banner type="success" icon={<Check size={18} />} onClose={() => setCreated(null)}>
+          <b>Hisob yaratildi:</b> {created.fullName} ({created.licenseNumber})<br />
+          Email: <b>{created.email}</b> · Vaqtinchalik parol: <b>{created.password}</b>
+        </Banner>
+      )}
+
+      <Field label="Admin kodi">
+        <div style={{ position: 'relative' }}>
+          <KeyRound size={18} style={{ position: 'absolute', left: 12, top: 14, color: C.inkSoft }} />
+          <input
+            style={{ ...inputStyle, paddingLeft: 40 }}
+            type="password"
+            value={secret}
+            onChange={(e) => setSecret(e.target.value)}
+            placeholder="Maxfiy admin kodi"
+          />
+        </div>
+      </Field>
+
+      <Field label="Shifokor emaili">
+        <div style={{ position: 'relative' }}>
+          <Mail size={18} style={{ position: 'absolute', left: 12, top: 14, color: C.inkSoft }} />
+          <input
+            style={{ ...inputStyle, paddingLeft: 40 }}
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="shifokor@email.com"
+          />
+        </div>
+      </Field>
+
+      <Field label="Vaqtinchalik parol">
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ position: 'relative', flex: 1 }}>
+            <Lock size={18} style={{ position: 'absolute', left: 12, top: 14, color: C.inkSoft }} />
+            <input
+              style={{ ...inputStyle, paddingLeft: 40 }}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Kamida 6 belgi"
+            />
+          </div>
+          <button
+            onClick={genPassword}
+            title="Tasodifiy parol yaratish"
+            style={{ width: 48, borderRadius: 12, border: `1.5px solid ${C.line}`, background: C.white, color: C.teal, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <RefreshCw size={18} />
+          </button>
+        </div>
+      </Field>
+
+      <Field label="F.I.Sh.">
+        <input
+          style={inputStyle}
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
+          placeholder="Masalan: Yusupova Nilufar Baxtiyorovna"
+        />
+      </Field>
+
+      <Field label="Litsenziya / diplom raqami">
+        <div style={{ position: 'relative' }}>
+          <IdCard size={18} style={{ position: 'absolute', left: 12, top: 14, color: C.inkSoft }} />
+          <input
+            style={{ ...inputStyle, paddingLeft: 40 }}
+            value={licenseNumber}
+            onChange={(e) => setLicenseNumber(e.target.value)}
+            placeholder="Masalan: VRC-2019-04521"
+          />
+        </div>
+      </Field>
+
+      <Btn variant="primary" full onClick={submit} disabled={busy} style={{ marginTop: 4 }}>
+        {busy ? 'Kutilmoqda…' : 'Hisob yaratish'}
+      </Btn>
+    </div>
+  );
+}
+
+/* ------------------------------ Shifokor: kirish ------------------------------
+   Ochiq ro'yxatdan o'tish yo'q — hisoblarni faqat admin yaratadi (litsenziyani
+   qo'lda tekshirgach), shu bois bu yerda faqat login mavjud. */
+function DoctorAuth({ onBack }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const submit = async () => {
+    setErr(null);
     const em = email.trim();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return setErr('To\'g\'ri email kiriting.');
     if (password.length < 6) return setErr('Parol kamida 6 belgidan iborat bo\'lishi kerak.');
-    if (mode === 'signup' && !fullName.trim()) return setErr('F.I.Sh. kiriting.');
-    if (mode === 'signup' && !licenseNumber.trim()) return setErr('Litsenziya/diplom raqamini kiriting.');
     setBusy(true);
     try {
-      if (mode === 'signup') {
-        const { session, user } = await auth.signUp(em, password);
-        if (!session) {
-          // Email tasdiqlash yoqilgan bo'lsa
-          setInfo('Hisob yaratildi. Emailingizni tasdiqlab, so\'ng kiring.');
-          setMode('login');
-        } else if (user) {
-          // Profilni darrov saqlaymiz — javobgarlik uchun majburiy
-          try {
-            await store.set(`doctor:${user.id}`, {
-              uid: user.id,
-              email: em,
-              fullName: fullName.trim(),
-              licenseNumber: licenseNumber.trim(),
-              createdAt: Date.now(),
-            }, true);
-          } catch (e) { /* App darajasida profil yo'qligi qayta so'raladi */ }
-        }
-        // session bo'lsa — App auth.onChange orqali avtomatik kiradi
-      } else {
-        await auth.signIn(em, password);
-      }
+      await auth.signIn(em, password);
     } catch (e) {
       const m = (e && e.message) || '';
       if (/Invalid login/i.test(m)) setErr('Email yoki parol noto\'g\'ri.');
-      else if (/already registered/i.test(m)) setErr('Bu email allaqachon ro\'yxatdan o\'tgan. Kiring.');
       else if (/confirm/i.test(m)) setErr('Email tasdiqlanmagan. Pochtangizni tekshiring.');
       else setErr(m || 'Kirishda xatolik yuz berdi.');
     } finally {
@@ -634,38 +755,13 @@ function DoctorAuth({ onBack }) {
         <Stethoscope size={30} />
       </div>
       <h1 style={{ fontFamily: SERIF, fontSize: 28, color: C.tealDeep, margin: '0 0 6px', fontWeight: 600 }}>
-        {mode === 'login' ? 'Shifokor hisobiga kirish' : 'Yangi shifokor hisobi'}
+        Shifokor hisobiga kirish
       </h1>
       <p style={{ fontFamily: SANS, fontSize: 15, color: C.inkSoft, margin: '0 0 22px', lineHeight: 1.5 }}>
-        {mode === 'login' ? 'Email va parolingiz bilan kiring.' : 'Email va parol tanlab, hisob oching.'}
+        Email va parolingiz bilan kiring.
       </p>
 
       {err && <Banner type="error" icon={<AlertTriangle size={18} />} onClose={() => setErr(null)}>{err}</Banner>}
-      {info && <Banner type="success" icon={<Check size={18} />} onClose={() => setInfo(null)}>{info}</Banner>}
-
-      {mode === 'signup' && (
-        <>
-          <Field label="F.I.Sh.">
-            <input
-              style={inputStyle}
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Masalan: Yusupova Nilufar Baxtiyorovna"
-            />
-          </Field>
-          <Field label="Litsenziya / diplom raqami" hint="Javobgarlik va bemorlar ishonchi uchun ko'rsatiladi">
-            <div style={{ position: 'relative' }}>
-              <IdCard size={18} style={{ position: 'absolute', left: 12, top: 14, color: C.inkSoft }} />
-              <input
-                style={{ ...inputStyle, paddingLeft: 40 }}
-                value={licenseNumber}
-                onChange={(e) => setLicenseNumber(e.target.value)}
-                placeholder="Masalan: VRC-2019-04521"
-              />
-            </div>
-          </Field>
-        </>
-      )}
 
       <Field label="Email">
         <div style={{ position: 'relative' }}>
@@ -689,25 +785,20 @@ function DoctorAuth({ onBack }) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Kamida 6 belgi"
-            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+            autoComplete="current-password"
             onKeyDown={(e) => e.key === 'Enter' && submit()}
           />
         </div>
       </Field>
 
       <Btn variant="primary" full onClick={submit} disabled={busy} style={{ marginTop: 4 }}>
-        {busy ? 'Kutilmoqda…' : mode === 'login' ? 'Kirish' : 'Hisob ochish'}
+        {busy ? 'Kutilmoqda…' : 'Kirish'}
       </Btn>
 
-      <div style={{ textAlign: 'center', marginTop: 16, fontFamily: SANS, fontSize: 14, color: C.inkSoft }}>
-        {mode === 'login' ? "Hisobingiz yo'qmi? " : 'Hisobingiz bormi? '}
-        <button
-          onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setErr(null); setInfo(null); }}
-          style={{ background: 'none', border: 'none', color: C.teal, fontWeight: 700, cursor: 'pointer', fontFamily: SANS, fontSize: 14 }}
-        >
-          {mode === 'login' ? 'Hisob oching' : 'Kiring'}
-        </button>
-      </div>
+      <p style={{ textAlign: 'center', marginTop: 16, fontFamily: SANS, fontSize: 13.5, color: C.inkSoft, lineHeight: 1.5 }}>
+        Hisobingiz yo'qmi? Yangi shifokor hisoblari litsenziya tekshiruvidan so'ng
+        administrator tomonidan ochiladi.
+      </p>
     </div>
   );
 }

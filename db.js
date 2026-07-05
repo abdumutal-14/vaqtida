@@ -106,3 +106,17 @@ export const auth = {
     return () => data.subscription.unsubscribe();
   },
 };
+
+/* Faqat admin: litsenziya tekshirilgach shifokor hisobini yaratadi.
+   Server (Edge Function) "x-admin-secret" ni o'zi tekshiradi — mijozda
+   hech qanday maxfiy kalit saqlanmaydi. */
+export async function adminCreateDoctor(adminSecret, { email, password, fullName, licenseNumber }) {
+  const res = await fetch(`${URL}/functions/v1/admin-create-doctor`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-secret': adminSecret },
+    body: JSON.stringify({ email, password, fullName, licenseNumber }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error || "Hisob yaratib bo'lmadi.");
+  return data;
+}
