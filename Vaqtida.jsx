@@ -3,7 +3,7 @@ import {
   Stethoscope, User, UserPlus, Pill, Bell, BellOff, Check, AlertTriangle,
   Trash2, Pencil, Plus, ArrowLeft, LogOut, Copy, X, ChevronRight, Clock,
   Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files, Lock, Mail, CalendarDays, Phone, Type, Download,
-  Store, Search, BadgeCheck, XCircle, IdCard, History, KeyRound, ShieldCheck, RefreshCw, Globe, WifiOff,
+  Store, Search, BadgeCheck, XCircle, IdCard, History, KeyRound, ShieldCheck, RefreshCw, Globe, WifiOff, Link2,
 } from 'lucide-react';
 import { store, hasBackend, auth, adminCreateDoctor, offlineQueue } from './db.js';
 import { pushSupported, subscribeToPush, getPushState } from './push.js';
@@ -1124,13 +1124,16 @@ function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
 /* Yangi bemor qo'shish */
 function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState(null); // null | 'new' | 'link'
   const [name, setName] = useState('');
   const [diagnosis, setDiagnosis] = useState('');
   const [phone, setPhone] = useState('');
   const [birthYear, setBirthYear] = useState('');
   const [newCode, setNewCode] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [linkCode, setLinkCode] = useState('');
+  const [linking, setLinking] = useState(false);
+  const [linkedName, setLinkedName] = useState(null);
 
   const submit = async () => {
     if (!name.trim() || !diagnosis.trim()) {
@@ -1180,6 +1183,52 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
     }
   };
 
+  /* Boshqa shifokor (masalan boshqa shifoxonada) allaqachon ochgan bemorni
+     o'z ro'yxatiga ulaydi — bemor kodi orqali. Umumiy yozuv (patient:/rx:)
+     o'zgarmaydi, faqat shu shifokorning o'z ro'yxatiga qo'shiladi — shu
+     bois bemor bir nechta shifokorda parallel kuzatilishi mumkin. */
+  const submitLink = async () => {
+    const c = linkCode.trim().toUpperCase();
+    if (!CODE_RE.test(c)) return onError(t(`Kod ${CODE_LEN} ta belgidan iborat bo'lishi kerak.`, `Код должен состоять из ${CODE_LEN} символов.`));
+    setLinking(true);
+    try {
+      const patient = await store.get(`patient:${c}`, true);
+      if (!patient) {
+        onError(t('Bunday kod topilmadi.', 'Такой код не найден.'));
+        setLinking(false);
+        return;
+      }
+      const existing = (await store.get(`patients:${doctorId}`, true)) || [];
+      if (existing.some((p) => p.code === c)) {
+        onError(t("Bu bemor allaqachon ro'yxatingizda bor.", 'Этот пациент уже есть в вашем списке.'));
+        setLinking(false);
+        return;
+      }
+      await store.set(`patients:${doctorId}`, [...existing, patient], true);
+      setLinkedName(patient.name);
+      setLinkCode('');
+      onAdded();
+    } catch (e) {
+      onError(t("Ulab bo'lmadi. Qaytadan urinib ko'ring.", 'Не удалось привязать. Попробуйте ещё раз.'));
+    } finally {
+      setLinking(false);
+    }
+  };
+
+  if (linkedName) {
+    return (
+      <Card style={{ background: C.sage, border: 'none', color: C.white }}>
+        <div style={{ fontFamily: SANS, fontSize: 14, opacity: 0.9 }}>
+          {t('Bemor ro\'yxatingizga ulandi:', 'Пациент добавлен в ваш список:')}
+        </div>
+        <div style={{ fontFamily: SERIF, fontSize: 20, fontWeight: 700, margin: '6px 0' }}>{linkedName}</div>
+        <Btn variant="quiet" full onClick={() => { setLinkedName(null); setMode(null); }} style={{ marginTop: 4 }}>
+          {t('Yaxshi, yopish', 'Хорошо, закрыть')}
+        </Btn>
+      </Card>
+    );
+  }
+
   if (newCode) {
     return (
       <Card style={{ background: C.teal, border: 'none', color: C.paper }}>
@@ -1205,15 +1254,20 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
 
   return (
     <Card>
-      {!open ? (
-        <Btn variant="primary" full onClick={() => setOpen(true)}>
-          <UserPlus size={18} /> {t("Yangi bemor qo'shish", 'Добавить пациента')}
-        </Btn>
-      ) : (
+      {mode === null ? (
+        <div style={{ display: 'flex', gap: 10 }}>
+          <Btn variant="primary" onClick={() => setMode('new')} style={{ flex: 1 }}>
+            <UserPlus size={18} /> {t("Yangi bemor", 'Новый пациент')}
+          </Btn>
+          <Btn variant="ghost" onClick={() => setMode('link')} style={{ flex: 1 }}>
+            <Link2 size={18} /> {t("Mavjud bemorni ulash", 'Привязать пациента')}
+          </Btn>
+        </div>
+      ) : mode === 'new' ? (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <div style={{ fontFamily: SERIF, fontSize: 18, color: C.tealDeep, fontWeight: 600 }}>{t('Yangi bemor', 'Новый пациент')}</div>
-            <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.inkSoft }}>
+            <button onClick={() => setMode(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.inkSoft }}>
               <X size={20} />
             </button>
           </div>
@@ -1237,6 +1291,34 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
           </div>
           <Btn variant="gold" full onClick={submit} disabled={saving}>
             {saving ? t('Saqlanmoqda…', 'Сохранение…') : t("Qo'shish va kod olish", 'Добавить и получить код')}
+          </Btn>
+        </div>
+      ) : (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div style={{ fontFamily: SERIF, fontSize: 18, color: C.tealDeep, fontWeight: 600 }}>{t('Mavjud bemorni ulash', 'Привязать существующего пациента')}</div>
+            <button onClick={() => { setMode(null); setLinkCode(''); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.inkSoft }}>
+              <X size={20} />
+            </button>
+          </div>
+          <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 10, lineHeight: 1.5 }}>
+            {t(
+              "Bemor boshqa shifoxonada (boshqa shifokorda) allaqachon ro'yxatdan o'tgan bo'lsa, uning kodini kiriting — bemor sizning ro'yxatingizga ham qo'shiladi, umumiy tarixi saqlanadi.",
+              'Если пациент уже зарегистрирован в другой больнице (у другого врача), введите его код — пациент добавится и в ваш список, вся история сохранится.'
+            )}
+          </div>
+          <Field label={t('Bemor kodi', 'Код пациента')}>
+            <input
+              style={{ ...inputStyle, fontFamily: SERIF, fontSize: 20, textAlign: 'center', letterSpacing: 4, fontWeight: 700, color: C.tealDeep, textTransform: 'uppercase' }}
+              value={linkCode}
+              onChange={(e) => setLinkCode(cleanCodeInput(e.target.value))}
+              placeholder="XXXXXXXX"
+              autoCapitalize="characters"
+              onKeyDown={(e) => e.key === 'Enter' && submitLink()}
+            />
+          </Field>
+          <Btn variant="gold" full onClick={submitLink} disabled={linking}>
+            <Link2 size={18} /> {linking ? t('Ulanmoqda…', 'Привязка…') : t('Ulash', 'Привязать')}
           </Btn>
         </div>
       )}
@@ -1585,20 +1667,21 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
     }
   };
 
+  /* Bemor endi bir nechta shifokorga (masalan turli shifoxonalarda) bog'lanishi
+     mumkin bo'lgani uchun bu yerda faqat SHU shifokorning o'z ro'yxatidan olib
+     tashlaymiz — umumiy yozuv (retsept, tarix) boshqa shifokorlar uchun
+     saqlanib qoladi, chunki ular ham shu bemorga bog'langan bo'lishi mumkin. */
   const deletePatient = async () => {
-    if (!window.confirm(t(`${patient?.name || 'Bemor'}ni butunlay o'chirasizmi? Retsept va tarix ham o'chadi.`, `Полностью удалить ${patient?.name || 'пациента'}? Рецепт и история тоже будут удалены.`))) return;
+    if (!window.confirm(t(
+      `${patient?.name || 'Bemor'}ni ro'yxatingizdan olib tashlaysizmi? Bemorning umumiy ma'lumoti (boshqa shifokorlar uchun) saqlanib qoladi.`,
+      `Удалить ${patient?.name || 'пациента'} из вашего списка? Общие данные пациента (для других врачей) сохранятся.`
+    ))) return;
     try {
       const list = (await store.get(`patients:${doctorId}`, true)) || [];
       await store.set(`patients:${doctorId}`, list.filter((p) => p.code !== code), true);
-      await store.set(`patient:${code}`, null, true);
-      await store.set(`rx:${code}`, null, true);
-      await store.set(`audit:${code}`, null, true);
-      await store.set(`push:${code}`, null, true);
-      await store.removePrefixed(`log:${code}:`);
-      await store.removePrefixed(`pushlog:${code}:`);
       onDeletedPatient();
     } catch (e) {
-      onError(t("Bemorni o'chirib bo'lmadi.", 'Не удалось удалить пациента.'));
+      onError(t("Ro'yxatdan olib tashlab bo'lmadi.", 'Не удалось удалить из списка.'));
     }
   };
 
@@ -1797,7 +1880,7 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
         )}
 
         <Btn variant="ghost" full onClick={deletePatient} style={{ marginTop: 24, color: C.red, border: '1.5px solid #E7C6C1' }}>
-          <Trash2 size={16} /> {t("Bemorni o'chirish", 'Удалить пациента')}
+          <Trash2 size={16} /> {t("Ro'yxatimdan olib tashlash", 'Удалить из моего списка')}
         </Btn>
       </div>
     </div>
