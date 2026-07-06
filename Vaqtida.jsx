@@ -55,7 +55,14 @@ const addDays = (ds, n) => {
 };
 const timeAsDate = (ds, hhmm) => new Date(`${ds}T${hhmm}:00`);
 const doseKey = (medId, hhmm) => `${medId}__${hhmm}`;
-const gen6 = () => String(Math.floor(100000 + Math.random() * 900000));
+/* Bemor kodi: 8 ta belgi, harf+raqam aralash. Chalkash belgilar (0/O, 1/I/L)
+   chiqarib tashlangan — telefon orqali aytilganda yoki qo'lda yozilganda
+   adashtirilmasin. 32^8 ≈ 1.1 trln variant — taxmin qilish amalda imkonsiz. */
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const CODE_LEN = 8;
+const genCode = () => Array.from({ length: CODE_LEN }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
+const CODE_RE = new RegExp(`^[A-Z0-9]{${CODE_LEN}}$`);
+const cleanCodeInput = (v) => v.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, CODE_LEN);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const curYear = () => new Date().getFullYear();
 const validBirthYear = (y) => { const n = Number(y); return Number.isInteger(n) && n >= 1900 && n <= curYear(); };
@@ -616,7 +623,7 @@ function RoleSelect({ onPick }) {
 
       <Banner type="info" icon={<Info size={18} />}>
         {hasBackend ? (
-          <><b>{t('Eslatma:', 'Примечание:')}</b> {t("Har shifokor o'z hisobi bilan kiradi va ", 'Каждый врач входит в свой аккаунт и видит ')}<b>{t('faqat o\'z bemorlarini', 'только своих пациентов')}</b>{t(" ko'radi. Bemorlar 6 xonali kod bilan kiradi — kodni maxfiy saqlang.", '. Пациенты входят по 6-значному коду — храните код в тайне.')}</>
+          <><b>{t('Eslatma:', 'Примечание:')}</b> {t("Har shifokor o'z hisobi bilan kiradi va ", 'Каждый врач входит в свой аккаунт и видит ')}<b>{t('faqat o\'z bemorlarini', 'только своих пациентов')}</b>{t(` ko'radi. Bemorlar ${CODE_LEN} belgili kod bilan kiradi — kodni maxfiy saqlang.`, `. Пациенты входят по ${CODE_LEN}-значному коду — храните код в тайне.`)}</>
         ) : (
           <><b>{t('Eslatma:', 'Примечание:')}</b> {t('Bu mahalliy demo — ma\'lumot faqat shu brauzerda saqlanadi va autentifikatsiyasiz ishlaydi.', 'Это локальная демо-версия — данные хранятся только в этом браузере и работают без авторизации.')}</>
         )}
@@ -969,7 +976,7 @@ function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
       const key = payload?.new?.key || payload?.old?.key;
       if (!key) return;
       if (key === `patients:${doctorId}`) { loadPatients(); return; }
-      const m = key.match(/^(?:log|rx|patient):(\d{6})/);
+      const m = key.match(/^(?:log|rx|patient):([A-Z0-9]{8})/);
       if (m && patientsRef.current.some((p) => p.code === m[1])) setTick((t) => t + 1);
     });
     return off;
@@ -1134,10 +1141,10 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
       // Kod BUTUN tizim bo'yicha noyob bo'lishi kerak (patient:{code} umumiy
       // kalit fazosi) — faqat shu shifokorning ro'yxati bilan solishtirish
       // yetarli emas, boshqa shifokor xuddi shu kodni yaratib qo'yishi mumkin.
-      let code = gen6();
+      let code = genCode();
       let guard = 0;
       while ((await store.get(`patient:${code}`, true)) && guard < 50) {
-        code = gen6();
+        code = genCode();
         guard++;
       }
       const rec = {
@@ -1172,7 +1179,7 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
       <Card style={{ background: C.teal, border: 'none', color: C.paper }}>
         <div style={{ fontFamily: SANS, fontSize: 14, opacity: 0.85 }}>{t('Bemor qo\'shildi. Ushbu kodni bemorga bering:', 'Пациент добавлен. Передайте этот код пациенту:')}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '10px 0 6px' }}>
-          <div style={{ fontFamily: SERIF, fontSize: 40, letterSpacing: 6, fontWeight: 700, color: C.gold }}>{newCode}</div>
+          <div style={{ fontFamily: SERIF, fontSize: 26, letterSpacing: 3, fontWeight: 700, color: C.gold }}>{newCode}</div>
           <Btn
             variant="gold"
             onClick={() => {
@@ -2049,8 +2056,8 @@ function PharmacyApp({ onBack, onError }) {
   const [drugQuery, setDrugQuery] = useState('');
 
   const check = async () => {
-    const c = code.trim();
-    if (!/^\d{6}$/.test(c)) return setErr(t('Kod 6 xonali raqam bo\'lishi kerak.', 'Код должен быть 6-значным числом.'));
+    const c = code.trim().toUpperCase();
+    if (!CODE_RE.test(c)) return setErr(t(`Kod ${CODE_LEN} ta belgidan iborat bo'lishi kerak.`, `Код должен состоять из ${CODE_LEN} символов.`));
     setChecking(true);
     setErr(null);
     setResult(null);
@@ -2086,8 +2093,8 @@ function PharmacyApp({ onBack, onError }) {
           <>
             <Banner type="info" icon={<Info size={18} />}>
               {t(
-                "Bemorning 6 xonali kodini kiriting — unga qaysi dorilar shifokor tomonidan tayinlanganini ko'rasiz.",
-                'Введите 6-значный код пациента — вы увидите, какие лекарства назначены врачом.'
+                `Bemorning ${CODE_LEN} belgili kodini kiriting — unga qaysi dorilar shifokor tomonidan tayinlanganini ko'rasiz.`,
+                `Введите ${CODE_LEN}-значный код пациента — вы увидите, какие лекарства назначены врачом.`
               )}
             </Banner>
 
@@ -2095,11 +2102,11 @@ function PharmacyApp({ onBack, onError }) {
 
             <Field label={t('Bemor kodi', 'Код пациента')}>
               <input
-                style={{ ...inputStyle, fontFamily: SERIF, fontSize: 26, textAlign: 'center', letterSpacing: 8, fontWeight: 700, color: C.tealDeep }}
+                style={{ ...inputStyle, fontFamily: SERIF, fontSize: 22, textAlign: 'center', letterSpacing: 5, fontWeight: 700, color: C.tealDeep, textTransform: 'uppercase' }}
                 value={code}
-                onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
-                placeholder="000000"
-                inputMode="numeric"
+                onChange={(e) => setCode(cleanCodeInput(e.target.value))}
+                placeholder="XXXXXXXX"
+                autoCapitalize="characters"
                 onKeyDown={(e) => e.key === 'Enter' && check()}
               />
             </Field>
@@ -2176,8 +2183,8 @@ function PatientLogin({ onLogin, onBack, onError }) {
   const [err, setErr] = useState(null);
 
   const submit = async () => {
-    const c = code.trim();
-    if (!/^\d{6}$/.test(c)) return setErr(t('Kod 6 xonali raqam bo\'lishi kerak.', 'Код должен быть 6-значным числом.'));
+    const c = code.trim().toUpperCase();
+    if (!CODE_RE.test(c)) return setErr(t(`Kod ${CODE_LEN} ta belgidan iborat bo'lishi kerak.`, `Код должен состоять из ${CODE_LEN} символов.`));
     setChecking(true);
     setErr(null);
     try {
@@ -2205,17 +2212,17 @@ function PatientLogin({ onLogin, onBack, onError }) {
       </div>
       <h1 style={{ fontFamily: SERIF, fontSize: 28, color: C.tealDeep, margin: '0 0 6px', fontWeight: 600 }}>{t('Xush kelibsiz', 'Добро пожаловать')}</h1>
       <p style={{ fontFamily: SANS, fontSize: 15, color: C.inkSoft, margin: '0 0 24px', lineHeight: 1.5 }}>
-        {t('Shifokoringiz bergan 6 xonali kodni kiriting.', 'Введите 6-значный код, полученный от врача.')}
+        {t(`Shifokoringiz bergan ${CODE_LEN} belgili kodni kiriting.`, `Введите ${CODE_LEN}-значный код, полученный от врача.`)}
       </p>
 
       {err && <Banner type="error" icon={<AlertTriangle size={18} />} onClose={() => setErr(null)}>{err}</Banner>}
 
       <input
-        style={{ ...inputStyle, fontFamily: SERIF, fontSize: 34, textAlign: 'center', letterSpacing: 10, padding: '16px 14px', fontWeight: 700, color: C.tealDeep }}
+        style={{ ...inputStyle, fontFamily: SERIF, fontSize: 28, textAlign: 'center', letterSpacing: 6, padding: '16px 14px', fontWeight: 700, color: C.tealDeep, textTransform: 'uppercase' }}
         value={code}
-        onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
-        placeholder="000000"
-        inputMode="numeric"
+        onChange={(e) => setCode(cleanCodeInput(e.target.value))}
+        placeholder="XXXXXXXX"
+        autoCapitalize="characters"
         onKeyDown={(e) => e.key === 'Enter' && submit()}
       />
       <Btn variant="gold" full onClick={submit} disabled={checking} style={{ marginTop: 16 }}>
