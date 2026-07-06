@@ -2465,7 +2465,16 @@ function PatientApp({ code, onLogout, onError }) {
         title={`${t('Salom', 'Здравствуйте')}, ${patient.name.split(' ')[0] || patient.name}`}
         subtitle={niceDate}
         right={
-          <Btn variant="quiet" onClick={onLogout} style={{ padding: '10px 12px', fontSize: 14 }}>
+          <Btn
+            variant="quiet"
+            onClick={() => {
+              if (window.confirm(t(
+                "Chiqishni xohlaysizmi? Qayta kirish uchun sizga yana 8 belgili kod kerak bo'ladi.",
+                'Хотите выйти? Для повторного входа понадобится 8-значный код.'
+              ))) onLogout();
+            }}
+            style={{ padding: '10px 12px', fontSize: 14 }}
+          >
             <LogOut size={16} /> {t('Chiqish', 'Выйти')}
           </Btn>
         }
