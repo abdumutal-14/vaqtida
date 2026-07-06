@@ -127,6 +127,59 @@ export const auth = {
   },
 };
 
+/* -------------------------------------------------------------------------
+   Oflayn navbat: internet uzilganda bemorning "doza qabul qilindi" belgisi
+   yo'qolib qolmasin. Har bir kalit uchun FAQAT eng oxirgi qiymat saqlanadi
+   (localStorage'da) — internet qaytganda avtomatik yuboriladi.
+   ------------------------------------------------------------------------- */
+const QUEUE_KEY = 'vaqtida_offline_queue';
+
+const readQueue = () => {
+  try { return JSON.parse(localStorage.getItem(QUEUE_KEY)) || {}; } catch (e) { return {}; }
+};
+const writeQueue = (map) => {
+  try { localStorage.setItem(QUEUE_KEY, JSON.stringify(map)); } catch (e) { /* joy yo'q bo'lsa ham davom etamiz */ }
+};
+
+export const offlineQueue = {
+  size() { return Object.keys(readQueue()).length; },
+
+  /* Shared (bulut) yozuvni darrov yuborishga urinadi; muvaffaqiyatsiz
+     bo'lsa (masalan oflayn) — navbatga qo'yadi va keyinroq avtomatik
+     qayta urinadi. Qaytaradi: true = darrov saqlandi, false = navbatda. */
+  async setQueued(key, value) {
+    const map = readQueue();
+    map[key] = value;
+    writeQueue(map);
+    try {
+      await store.set(key, value, true);
+      const after = readQueue();
+      delete after[key];
+      writeQueue(after);
+      return true;
+    } catch (e) {
+      return false;
+    }
+  },
+
+  /* Navbatdagi hammasini yuborishga urinadi. Birinchi muvaffaqiyatsizlikda
+     to'xtaydi (hali ham oflayn bo'lishi mumkin) — qolganlar soni qaytadi. */
+  async flush() {
+    const map = readQueue();
+    for (const key of Object.keys(map)) {
+      try {
+        await store.set(key, map[key], true);
+        const after = readQueue();
+        delete after[key];
+        writeQueue(after);
+      } catch (e) {
+        break;
+      }
+    }
+    return Object.keys(readQueue()).length;
+  },
+};
+
 /* Faqat admin: litsenziya tekshirilgach shifokor hisobini yaratadi.
    Server (Edge Function) "x-admin-secret" ni o'zi tekshiradi — mijozda
    hech qanday maxfiy kalit saqlanmaydi. */

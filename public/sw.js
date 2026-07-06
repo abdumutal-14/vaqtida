@@ -1,16 +1,46 @@
-/* Vaqtida — Service Worker (PWA + Web Push) */
-const VERSION = 'vaqtida-v1';
+/* Vaqtida — Service Worker (PWA + Web Push + oflayn keshlash) */
+const VERSION = 'vaqtida-v2';
+const RUNTIME_CACHE = `${VERSION}-runtime`;
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    (async () => {
+      // Eski versiyalarning keshini tozalaymiz
+      const names = await caches.keys();
+      await Promise.all(names.filter((n) => n !== RUNTIME_CACHE).map((n) => caches.delete(n)));
+      await self.clients.claim();
+    })()
+  );
 });
 
-// O'rnatiluvchanlik (installability) uchun fetch tinglovchisi — xatti-harakatga tegmaydi
-self.addEventListener('fetch', () => {});
+// Ilova qobig'ini (HTML/JS/CSS/rasm) oflayn ishlashi uchun keshlaymiz:
+// internet bor bo'lsa — tarmoqdan olib, keshga yozamiz; internet yo'q bo'lsa
+// — keshdan beramiz. Shu tufayli ilova avval kamida bir marta onlayn ochilgan
+// bo'lsa, keyinchalik signal yo'q joyda ham ochiladi.
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+
+  event.respondWith(
+    fetch(event.request)
+      .then((res) => {
+        const clone = res.clone();
+        caches.open(RUNTIME_CACHE).then((cache) => cache.put(event.request, clone));
+        return res;
+      })
+      .catch(async () => {
+        const cached = await caches.match(event.request);
+        if (cached) return cached;
+        if (event.request.mode === 'navigate') return caches.match('/');
+        return Response.error();
+      })
+  );
+});
 
 // Push kelganda bildirishnoma ko'rsatamiz (server 2-bosqichda yuboradi)
 self.addEventListener('push', (event) => {

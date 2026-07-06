@@ -3,9 +3,9 @@ import {
   Stethoscope, User, UserPlus, Pill, Bell, BellOff, Check, AlertTriangle,
   Trash2, Pencil, Plus, ArrowLeft, LogOut, Copy, X, ChevronRight, Clock,
   Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files, Lock, Mail, CalendarDays, Phone, Type, Download,
-  Store, Search, BadgeCheck, XCircle, IdCard, History, KeyRound, ShieldCheck, RefreshCw, Globe,
+  Store, Search, BadgeCheck, XCircle, IdCard, History, KeyRound, ShieldCheck, RefreshCw, Globe, WifiOff,
 } from 'lucide-react';
-import { store, hasBackend, auth, adminCreateDoctor } from './db.js';
+import { store, hasBackend, auth, adminCreateDoctor, offlineQueue } from './db.js';
 import { pushSupported, subscribeToPush, getPushState } from './push.js';
 
 /* =========================================================================
@@ -2248,6 +2248,7 @@ function PatientApp({ code, onLogout, onError }) {
   const [liveMsg, setLiveMsg] = useState(null);
   const [pushOn, setPushOn] = useState(false);
   const [installPrompt, setInstallPrompt] = useState(null);
+  const [pendingSync, setPendingSync] = useState(() => offlineQueue.size() > 0);
 
   const audioRef = useRef(null);
   const beepedRef = useRef(new Set()); // qaytariqni oldini olish uchun
@@ -2308,6 +2309,20 @@ function PatientApp({ code, onLogout, onError }) {
     const handler = (e) => { e.preventDefault(); setInstallPrompt(e); };
     window.addEventListener('beforeinstallprompt', handler);
     return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  // Oflayn navbatni internet qaytganda (yoki muntazam ravishda, zaxira
+  // sifatida — 'online' hodisasi ba'zan tarmoq holatini aniq ushlamaydi)
+  // avtomatik yuborishga urinib turamiz.
+  useEffect(() => {
+    const tryFlush = async () => {
+      const remaining = await offlineQueue.flush();
+      setPendingSync(remaining > 0);
+    };
+    tryFlush();
+    window.addEventListener('online', tryFlush);
+    const id = setInterval(tryFlush, 15000);
+    return () => { window.removeEventListener('online', tryFlush); clearInterval(id); };
   }, []);
 
   const doInstall = async () => {
@@ -2382,28 +2397,23 @@ function PatientApp({ code, onLogout, onError }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dueDoses.map((d) => d.key).join(','), now]);
 
+  /* Doza belgilash internetsiz ham ishlashi kerak: mahalliy holatni
+     darhol yangilaymiz va yozuvni oflayn navbatga qo'yamiz — internet
+     qaytganda avtomatik yuboriladi (pastdagi effekt orqali). */
   const markTaken = async (dose) => {
     if (dose.taken) return;
     const next = Array.from(new Set([...log, dose.key]));
-    setLog(next); // optimistik
-    try {
-      await store.set(`log:${code}:${day}`, next, true);
-    } catch (e) {
-      setLog(log); // qaytarish
-      onError(t("Belgilashni saqlab bo'lmadi. Qaytadan urinib ko'ring.", 'Не удалось сохранить отметку. Попробуйте ещё раз.'));
-    }
+    setLog(next); // optimistik, hech qachon qaytarilmaydi
+    const synced = await offlineQueue.setQueued(`log:${code}:${day}`, next);
+    setPendingSync(!synced);
   };
 
   const undoTaken = async (dose) => {
     if (!dose.taken) return;
     const next = log.filter((k) => k !== dose.key);
     setLog(next);
-    try {
-      await store.set(`log:${code}:${day}`, next, true);
-    } catch (e) {
-      setLog(log);
-      onError(t("O'zgartirishni saqlab bo'lmadi.", 'Не удалось сохранить изменение.'));
-    }
+    const synced = await offlineQueue.setQueued(`log:${code}:${day}`, next);
+    setPendingSync(!synced);
   };
 
   const enableNotif = async () => {
@@ -2462,6 +2472,16 @@ function PatientApp({ code, onLogout, onError }) {
       />
 
       <div style={{ padding: 16 }}>
+        {/* Oflayn navbat holati */}
+        {pendingSync && (
+          <Banner type="warn" icon={<WifiOff size={18} />}>
+            {t(
+              "Internet yo'q. Belgilaganingiz saqlanib turibdi — ulanish tiklanishi bilan avtomatik yuboriladi.",
+              'Нет интернета. Ваша отметка сохранена локально — отправится автоматически, когда связь восстановится.'
+            )}
+          </Banner>
+        )}
+
         {/* Real-time yangilanish xabari */}
         {liveMsg && (
           <Banner type="success" icon={<CalendarClock size={18} />} onClose={() => setLiveMsg(null)}>
