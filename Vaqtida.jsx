@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useContext, createContext } from 'react';
 import {
   Stethoscope, User, UserPlus, Pill, Bell, BellOff, Check, AlertTriangle,
   Trash2, Pencil, Plus, ArrowLeft, LogOut, Copy, X, ChevronRight, Clock,
   Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files, Lock, Mail, CalendarDays, Phone, Type, Download,
-  Store, Search, BadgeCheck, XCircle, IdCard, History, KeyRound, ShieldCheck, RefreshCw,
+  Store, Search, BadgeCheck, XCircle, IdCard, History, KeyRound, ShieldCheck, RefreshCw, Globe,
 } from 'lucide-react';
 import { store, hasBackend, auth, adminCreateDoctor } from './db.js';
 import { pushSupported, subscribeToPush, getPushState } from './push.js';
@@ -82,10 +82,25 @@ const doseStatus = (ds, hhmm, taken, now) => {
   return 'missed';
 };
 
-/* O'zbekcha sana (muhit lokaliga bog'liq bo'lmasin) */
+/* O'zbekcha/ruscha sana (muhit lokaliga bog'liq bo'lmasin) */
 const UZ_MONTHS = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr'];
 const UZ_WEEKDAYS = ['yakshanba', 'dushanba', 'seshanba', 'chorshanba', 'payshanba', 'juma', 'shanba'];
-const uzDate = (d) => `${UZ_WEEKDAYS[d.getDay()]}, ${d.getDate()}-${UZ_MONTHS[d.getMonth()]}`;
+const RU_MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+const RU_WEEKDAYS = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
+const localeDate = (d, lang) =>
+  lang === 'ru'
+    ? `${RU_WEEKDAYS[d.getDay()]}, ${d.getDate()} ${RU_MONTHS[d.getMonth()]}`
+    : `${UZ_WEEKDAYS[d.getDay()]}, ${d.getDate()}-${UZ_MONTHS[d.getMonth()]}`;
+
+/* ------------------------------ Til (i18n) ------------------------------
+   Kalit — o'zbekcha matn, qiymat — ruscha tarjima. Har joyda t('uz','ru')
+   deb chaqiriladi; hozirgi til Context orqali keladi. */
+const LangContext = createContext('uz');
+const translate = (lang, uz, ru) => (lang === 'ru' ? ru : uz);
+function useT() {
+  const lang = useContext(LangContext);
+  return (uz, ru) => translate(lang, uz, ru);
+}
 
 /* ------------------------------ Kichik UI ------------------------------ */
 function Btn({ children, onClick, variant = 'primary', style, disabled, type = 'button', full }) {
@@ -209,6 +224,7 @@ function Banner({ type = 'info', title, children, onClose, icon }) {
 
 /* --------------------------- Kun aylanasi (SVG) --------------------------- */
 function DayArc({ doses, now }) {
+  const t = useT();
   const W = 420, R = 150, cx = W / 2, baseY = 172, pad2 = 24;
   const H = baseY + 28;
   const pos = (h) => {
@@ -280,13 +296,13 @@ function DayArc({ doses, now }) {
       {/* Izoh (legend) */}
       <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap', marginTop: 6 }}>
         {[
-          ['Kutilmoqda', C.gold],
-          ['Qabul qilindi', C.sage],
-          ["O'tkazib yuborildi", C.red],
-        ].map(([t, c]) => (
-          <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: SANS, fontSize: 12.5, color: C.inkSoft }}>
+          [t('Kutilmoqda', 'Ожидается'), C.gold],
+          [t('Qabul qilindi', 'Принято'), C.sage],
+          [t("O'tkazib yuborildi", 'Пропущено'), C.red],
+        ].map(([label, c]) => (
+          <span key={label} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontFamily: SANS, fontSize: 12.5, color: C.inkSoft }}>
             <span style={{ width: 10, height: 10, borderRadius: 5, background: c, display: 'inline-block' }} />
-            {t}
+            {label}
           </span>
         ))}
       </div>
@@ -296,18 +312,23 @@ function DayArc({ doses, now }) {
 
 /* Xatolik chegarasi — bir komponent qulasa ham butun sayt oq bo'lib qolmasin */
 class ErrorBoundary extends React.Component {
+  static contextType = LangContext;
   constructor(props) { super(props); this.state = { error: null }; }
   static getDerivedStateFromError(error) { return { error }; }
   componentDidCatch(error, info) { console.error('Ilova xatosi:', error, info); }
   render() {
     if (this.state.error) {
+      const t = (uz, ru) => translate(this.context, uz, ru);
       return (
         <div style={{ padding: 24, fontFamily: SANS, color: C.ink }}>
-          <div style={{ fontFamily: SERIF, fontSize: 22, color: C.tealDeep, fontWeight: 600, marginBottom: 8 }}>Nimadir xato ketdi</div>
+          <div style={{ fontFamily: SERIF, fontSize: 22, color: C.tealDeep, fontWeight: 600, marginBottom: 8 }}>{t('Nimadir xato ketdi', 'Что-то пошло не так')}</div>
           <p style={{ fontSize: 15, color: C.inkSoft, lineHeight: 1.5, marginBottom: 16 }}>
-            Ilovada kutilmagan xatolik yuz berdi. Sahifani qayta yuklab ko'ring. Muammo takrorlansa, shifokoringizga yoki dastur egasiga xabar bering.
+            {t(
+              "Ilovada kutilmagan xatolik yuz berdi. Sahifani qayta yuklab ko'ring. Muammo takrorlansa, shifokoringizga yoki dastur egasiga xabar bering.",
+              'В приложении произошла непредвиденная ошибка. Перезагрузите страницу. Если проблема повторится, обратитесь к врачу или владельцу приложения.'
+            )}
           </p>
-          <Btn variant="primary" onClick={() => window.location.reload()}>Sahifani qayta yuklash</Btn>
+          <Btn variant="primary" onClick={() => window.location.reload()}>{t('Sahifani qayta yuklash', 'Перезагрузить страницу')}</Btn>
         </div>
       );
     }
@@ -326,7 +347,9 @@ export default function App() {
   // undefined = hali tekshirilmagan, null = profil yo'q, obyekt = profil bor
   const [doctorProfile, setDoctorProfile] = useState(undefined);
   const [bigFont, setBigFont] = useState(false);
+  const [lang, setLang] = useState('uz');
   const isAdminRoute = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('admin') === '1';
+  const t = (uz, ru) => translate(lang, uz, ru);
 
   const reportError = useCallback((msg) => setGlobalError(msg), []);
 
@@ -334,6 +357,14 @@ export default function App() {
     setBigFont((v) => {
       const next = !v;
       store.set('bigFont', next, false).catch(() => {});
+      return next;
+    });
+  };
+
+  const toggleLang = () => {
+    setLang((v) => {
+      const next = v === 'uz' ? 'ru' : 'uz';
+      store.set('lang', next, false).catch(() => {});
       return next;
     });
   };
@@ -371,6 +402,8 @@ export default function App() {
         if (s && s.role) setSettings(s);
         const bf = await store.get('bigFont', false);
         if (bf) setBigFont(true);
+        const l = await store.get('lang', false);
+        if (l === 'ru') setLang('ru');
       } catch (e) {
         reportError("Sozlamalarni o'qishda xatolik yuz berdi. Sahifani yangilab ko'ring.");
       } finally {
@@ -399,61 +432,77 @@ export default function App() {
 
   const scale = bigFont ? 1.25 : 1;
   const shell = (content) => (
-    <div
-      style={{
-        minHeight: '100vh',
-        background: `radial-gradient(120% 60% at 50% 0%, ${C.teal} 0%, ${C.tealDeep} 70%)`,
-        display: 'flex',
-        justifyContent: 'center',
-        fontFamily: SANS,
-      }}
-    >
+    <LangContext.Provider value={lang}>
       <div
         style={{
-          width: '100%',
-          // zoom kengaytiradi — gorizontal siljish bo'lmasligi uchun kenglikni moslaymiz
-          maxWidth: `min(480px, ${100 / scale}vw)`,
-          minHeight: `${100 / scale}vh`,
-          zoom: scale,
-          background: C.paper,
-          position: 'relative',
-          boxShadow: '0 0 40px rgba(0,0,0,0.25)',
+          minHeight: '100vh',
+          background: `radial-gradient(120% 60% at 50% 0%, ${C.teal} 0%, ${C.tealDeep} 70%)`,
+          display: 'flex',
+          justifyContent: 'center',
+          fontFamily: SANS,
         }}
       >
-        {globalError && (
-          <div style={{ padding: '12px 16px 0' }}>
-            <Banner type="error" icon={<AlertTriangle size={18} />} onClose={() => setGlobalError(null)} title="Xatolik">
-              {globalError}
-            </Banner>
-          </div>
-        )}
-        <ErrorBoundary>{content}</ErrorBoundary>
-
-        {/* Katta shrift toggle — har doim ko'rinadigan */}
-        <button
-          onClick={toggleBigFont}
-          title="Katta shrift rejimi"
-          aria-pressed={bigFont}
+        <div
           style={{
-            position: 'fixed', right: 14, bottom: 14, zIndex: 60,
-            display: 'inline-flex', alignItems: 'center', gap: 7,
-            padding: '9px 13px', borderRadius: 24, cursor: 'pointer',
-            fontFamily: SANS, fontSize: 13.5, fontWeight: 700,
-            background: bigFont ? C.gold : C.white,
-            color: bigFont ? C.tealDeep : C.teal,
-            border: `1.5px solid ${bigFont ? C.gold : C.line}`,
-            boxShadow: '0 3px 10px rgba(27,48,56,0.18)',
+            width: '100%',
+            // zoom kengaytiradi — gorizontal siljish bo'lmasligi uchun kenglikni moslaymiz
+            maxWidth: `min(480px, ${100 / scale}vw)`,
+            minHeight: `${100 / scale}vh`,
+            zoom: scale,
+            background: C.paper,
+            position: 'relative',
+            boxShadow: '0 0 40px rgba(0,0,0,0.25)',
           }}
         >
-          <Type size={17} /> {bigFont ? 'Odatiy shrift' : 'Katta shrift'}
-        </button>
+          {globalError && (
+            <div style={{ padding: '12px 16px 0' }}>
+              <Banner type="error" icon={<AlertTriangle size={18} />} onClose={() => setGlobalError(null)} title={t('Xatolik', 'Ошибка')}>
+                {globalError}
+              </Banner>
+            </div>
+          )}
+          <ErrorBoundary>{content}</ErrorBoundary>
+
+          {/* Til va katta shrift — har doim ko'rinadigan */}
+          <div style={{ position: 'fixed', right: 14, bottom: 14, zIndex: 60, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
+            <button
+              onClick={toggleLang}
+              title={t('Tilni almashtirish', 'Сменить язык')}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 7,
+                padding: '9px 13px', borderRadius: 24, cursor: 'pointer',
+                fontFamily: SANS, fontSize: 13.5, fontWeight: 700,
+                background: C.white, color: C.teal, border: `1.5px solid ${C.line}`,
+                boxShadow: '0 3px 10px rgba(27,48,56,0.18)',
+              }}
+            >
+              <Globe size={17} /> {lang === 'uz' ? "O'zbekcha" : 'Русский'}
+            </button>
+            <button
+              onClick={toggleBigFont}
+              title={t('Katta shrift rejimi', 'Режим крупного шрифта')}
+              aria-pressed={bigFont}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 7,
+                padding: '9px 13px', borderRadius: 24, cursor: 'pointer',
+                fontFamily: SANS, fontSize: 13.5, fontWeight: 700,
+                background: bigFont ? C.gold : C.white,
+                color: bigFont ? C.tealDeep : C.teal,
+                border: `1.5px solid ${bigFont ? C.gold : C.line}`,
+                boxShadow: '0 3px 10px rgba(27,48,56,0.18)',
+              }}
+            >
+              <Type size={17} /> {bigFont ? t('Odatiy shrift', 'Обычный шрифт') : t('Katta shrift', 'Крупный шрифт')}
+            </button>
+          </div>
+        </div>
       </div>
-    </div>
+    </LangContext.Provider>
   );
 
   if (!ready) {
     return shell(
-      <div style={{ padding: 40, textAlign: 'center', color: C.inkSoft, fontFamily: SANS, marginTop: 60 }}>Yuklanmoqda…</div>
+      <div style={{ padding: 40, textAlign: 'center', color: C.inkSoft, fontFamily: SANS, marginTop: 60 }}>{t('Yuklanmoqda…', 'Загрузка…')}</div>
     );
   }
 
@@ -465,7 +514,7 @@ export default function App() {
   if (settings.role === 'doctor') {
     if (hasBackend && !authUser) return shell(<DoctorAuth onBack={logout} onError={reportError} />);
     if (hasBackend && authUser && doctorProfile === undefined)
-      return shell(<div style={{ padding: 40, textAlign: 'center', color: C.inkSoft }}>Yuklanmoqda…</div>);
+      return shell(<div style={{ padding: 40, textAlign: 'center', color: C.inkSoft }}>{t('Yuklanmoqda…', 'Загрузка…')}</div>);
     if (hasBackend && authUser && doctorProfile === null) {
       return shell(
         <DoctorProfileSetup
@@ -495,6 +544,7 @@ export default function App() {
 
 /* ------------------------------ Rol tanlash ------------------------------ */
 function RoleSelect({ onPick }) {
+  const t = useT();
   return (
     <div style={{ padding: '56px 24px 40px' }}>
       <div style={{ textAlign: 'center', marginBottom: 40 }}>
@@ -508,11 +558,11 @@ function RoleSelect({ onPick }) {
         </div>
         <h1 style={{ fontFamily: SERIF, fontSize: 40, color: C.tealDeep, margin: '0 0 6px', fontWeight: 600 }}>Vaqtida</h1>
         <p style={{ fontFamily: SANS, color: C.inkSoft, fontSize: 15.5, margin: 0, lineHeight: 1.5 }}>
-          Dorini o'z vaqtida qabul qilishga yordam beruvchi hamroh
+          {t("Dorini o'z vaqtida qabul qilishga yordam beruvchi hamroh", 'Помощник, который поможет принимать лекарства вовремя')}
         </p>
       </div>
 
-      <p style={{ fontFamily: SANS, fontSize: 15, color: C.ink, textAlign: 'center', marginBottom: 18 }}>Siz kimsiz?</p>
+      <p style={{ fontFamily: SANS, fontSize: 15, color: C.ink, textAlign: 'center', marginBottom: 18 }}>{t('Siz kimsiz?', 'Кто вы?')}</p>
 
       <div style={{ display: 'grid', gap: 14 }}>
         <Card onClick={() => onPick('doctor')} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: 18 }}>
@@ -520,8 +570,8 @@ function RoleSelect({ onPick }) {
             <Stethoscope size={26} />
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: SERIF, fontSize: 19, color: C.tealDeep, fontWeight: 600 }}>Men shifokorman</div>
-            <div style={{ fontFamily: SANS, fontSize: 13.5, color: C.inkSoft }}>Bemor qo'shaman va retsept yozaman</div>
+            <div style={{ fontFamily: SERIF, fontSize: 19, color: C.tealDeep, fontWeight: 600 }}>{t('Men shifokorman', 'Я врач')}</div>
+            <div style={{ fontFamily: SANS, fontSize: 13.5, color: C.inkSoft }}>{t("Bemor qo'shaman va retsept yozaman", 'Добавляю пациентов и выписываю рецепты')}</div>
           </div>
           <ChevronRight color={C.inkSoft} />
         </Card>
@@ -531,8 +581,8 @@ function RoleSelect({ onPick }) {
             <User size={26} />
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: SERIF, fontSize: 19, color: C.tealDeep, fontWeight: 600 }}>Men bemorman</div>
-            <div style={{ fontFamily: SANS, fontSize: 13.5, color: C.inkSoft }}>Shifokor bergan kod bilan kiraman</div>
+            <div style={{ fontFamily: SERIF, fontSize: 19, color: C.tealDeep, fontWeight: 600 }}>{t('Men bemorman', 'Я пациент')}</div>
+            <div style={{ fontFamily: SANS, fontSize: 13.5, color: C.inkSoft }}>{t('Shifokor bergan kod bilan kiraman', 'Вхожу по коду от врача')}</div>
           </div>
           <ChevronRight color={C.inkSoft} />
         </Card>
@@ -542,8 +592,8 @@ function RoleSelect({ onPick }) {
             <Store size={26} />
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: SERIF, fontSize: 19, color: C.tealDeep, fontWeight: 600 }}>Men dorixonachiman</div>
-            <div style={{ fontFamily: SANS, fontSize: 13.5, color: C.inkSoft }}>Bemor kodi orqali retseptni tekshiraman</div>
+            <div style={{ fontFamily: SERIF, fontSize: 19, color: C.tealDeep, fontWeight: 600 }}>{t('Men dorixonachiman', 'Я из аптеки')}</div>
+            <div style={{ fontFamily: SANS, fontSize: 13.5, color: C.inkSoft }}>{t('Bemor kodi orqali retseptni tekshiraman', 'Проверяю рецепт по коду пациента')}</div>
           </div>
           <ChevronRight color={C.inkSoft} />
         </Card>
@@ -560,15 +610,15 @@ function RoleSelect({ onPick }) {
           }}
         >
           <span style={{ width: 8, height: 8, borderRadius: 4, background: hasBackend ? C.sage : C.gold, display: 'inline-block' }} />
-          {hasBackend ? "Bulutga ulangan — qurilmalar o'rtasida sinxron" : 'Mahalliy rejim — faqat shu brauzerda'}
+          {hasBackend ? t("Bulutga ulangan — qurilmalar o'rtasida sinxron", 'Подключено к облаку — синхронизация между устройствами') : t('Mahalliy rejim — faqat shu brauzerda', 'Локальный режим — только в этом браузере')}
         </span>
       </div>
 
       <Banner type="info" icon={<Info size={18} />}>
         {hasBackend ? (
-          <><b>Eslatma:</b> Har shifokor o'z hisobi bilan kiradi va <b>faqat o'z bemorlarini</b> ko'radi. Bemorlar 6 xonali kod bilan kiradi — kodni maxfiy saqlang.</>
+          <><b>{t('Eslatma:', 'Примечание:')}</b> {t("Har shifokor o'z hisobi bilan kiradi va ", 'Каждый врач входит в свой аккаунт и видит ')}<b>{t('faqat o\'z bemorlarini', 'только своих пациентов')}</b>{t(" ko'radi. Bemorlar 6 xonali kod bilan kiradi — kodni maxfiy saqlang.", '. Пациенты входят по 6-значному коду — храните код в тайне.')}</>
         ) : (
-          <><b>Eslatma:</b> Bu mahalliy demo — ma'lumot faqat shu brauzerda saqlanadi va autentifikatsiyasiz ishlaydi.</>
+          <><b>{t('Eslatma:', 'Примечание:')}</b> {t('Bu mahalliy demo — ma\'lumot faqat shu brauzerda saqlanadi va autentifikatsiyasiz ishlaydi.', 'Это локальная демо-версия — данные хранятся только в этом браузере и работают без авторизации.')}</>
         )}
       </Banner>
     </div>
@@ -580,6 +630,7 @@ function RoleSelect({ onPick }) {
    Admin kodi faqat serverda (Edge Function) tekshiriladi — mijozda saqlanmaydi,
    faqat shu brauzer sessiyasida (sessionStorage) qulaylik uchun eslab qolinadi. */
 function AdminCreateDoctor({ onBack, onError }) {
+  const t = useT();
   const [secret, setSecret] = useState(() => sessionStorage.getItem('vaqtida_admin_secret') || '');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -600,11 +651,11 @@ function AdminCreateDoctor({ onBack, onError }) {
     setErr(null);
     setCreated(null);
     const em = email.trim().toLowerCase();
-    if (!secret.trim()) return setErr('Admin kodini kiriting.');
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return setErr("To'g'ri email kiriting.");
-    if (password.length < 6) return setErr('Parol kamida 6 belgi.');
-    if (!fullName.trim()) return setErr('F.I.Sh. kiriting.');
-    if (!licenseNumber.trim()) return setErr('Litsenziya/diplom raqamini kiriting.');
+    if (!secret.trim()) return setErr(t('Admin kodini kiriting.', 'Введите код администратора.'));
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return setErr(t("To'g'ri email kiriting.", 'Введите корректный email.'));
+    if (password.length < 6) return setErr(t('Parol kamida 6 belgi.', 'Пароль минимум 6 символов.'));
+    if (!fullName.trim()) return setErr(t('F.I.Sh. kiriting.', 'Введите ФИО.'));
+    if (!licenseNumber.trim()) return setErr(t('Litsenziya/diplom raqamini kiriting.', 'Введите номер лицензии/диплома.'));
     setBusy(true);
     try {
       await adminCreateDoctor(secret.trim(), { email: em, password, fullName: fullName.trim(), licenseNumber: licenseNumber.trim() });
@@ -612,7 +663,7 @@ function AdminCreateDoctor({ onBack, onError }) {
       setCreated({ email: em, password, fullName: fullName.trim(), licenseNumber: licenseNumber.trim() });
       setEmail(''); setPassword(''); setFullName(''); setLicenseNumber('');
     } catch (e) {
-      setErr(e.message || "Hisob yaratib bo'lmadi.");
+      setErr(e.message || t("Hisob yaratib bo'lmadi.", 'Не удалось создать аккаунт.'));
     } finally {
       setBusy(false);
     }
@@ -628,22 +679,24 @@ function AdminCreateDoctor({ onBack, onError }) {
         <ShieldCheck size={30} />
       </div>
       <h1 style={{ fontFamily: SERIF, fontSize: 26, color: C.tealDeep, margin: '0 0 6px', fontWeight: 600 }}>
-        Shifokor hisobi yaratish
+        {t('Shifokor hisobi yaratish', 'Создание аккаунта врача')}
       </h1>
       <p style={{ fontFamily: SANS, fontSize: 14.5, color: C.inkSoft, margin: '0 0 22px', lineHeight: 1.5 }}>
-        Litsenziya/diplom raqamini qo'lda tekshirgach, shifokor uchun hisob oching.
-        Login ma'lumotlarini shifokorga xavfsiz yo'l bilan (masalan, shaxsan yoki telefon orqali) yetkazing.
+        {t(
+          "Litsenziya/diplom raqamini qo'lda tekshirgach, shifokor uchun hisob oching. Login ma'lumotlarini shifokorga xavfsiz yo'l bilan (masalan, shaxsan yoki telefon orqali) yetkazing.",
+          'Проверив номер лицензии/диплома вручную, откройте аккаунт для врача. Передайте данные для входа врачу безопасным способом (лично или по телефону).'
+        )}
       </p>
 
       {err && <Banner type="error" icon={<AlertTriangle size={18} />} onClose={() => setErr(null)}>{err}</Banner>}
       {created && (
         <Banner type="success" icon={<Check size={18} />} onClose={() => setCreated(null)}>
-          <b>Hisob yaratildi:</b> {created.fullName} ({created.licenseNumber})<br />
-          Email: <b>{created.email}</b> · Vaqtinchalik parol: <b>{created.password}</b>
+          <b>{t('Hisob yaratildi:', 'Аккаунт создан:')}</b> {created.fullName} ({created.licenseNumber})<br />
+          Email: <b>{created.email}</b> · {t('Vaqtinchalik parol:', 'Временный пароль:')} <b>{created.password}</b>
         </Banner>
       )}
 
-      <Field label="Admin kodi">
+      <Field label={t('Admin kodi', 'Код администратора')}>
         <div style={{ position: 'relative' }}>
           <KeyRound size={18} style={{ position: 'absolute', left: 12, top: 14, color: C.inkSoft }} />
           <input
@@ -651,12 +704,12 @@ function AdminCreateDoctor({ onBack, onError }) {
             type="password"
             value={secret}
             onChange={(e) => setSecret(e.target.value)}
-            placeholder="Maxfiy admin kodi"
+            placeholder={t('Maxfiy admin kodi', 'Секретный код администратора')}
           />
         </div>
       </Field>
 
-      <Field label="Shifokor emaili">
+      <Field label={t('Shifokor emaili', 'Email врача')}>
         <div style={{ position: 'relative' }}>
           <Mail size={18} style={{ position: 'absolute', left: 12, top: 14, color: C.inkSoft }} />
           <input
@@ -669,7 +722,7 @@ function AdminCreateDoctor({ onBack, onError }) {
         </div>
       </Field>
 
-      <Field label="Vaqtinchalik parol">
+      <Field label={t('Vaqtinchalik parol', 'Временный пароль')}>
         <div style={{ display: 'flex', gap: 8 }}>
           <div style={{ position: 'relative', flex: 1 }}>
             <Lock size={18} style={{ position: 'absolute', left: 12, top: 14, color: C.inkSoft }} />
@@ -677,12 +730,12 @@ function AdminCreateDoctor({ onBack, onError }) {
               style={{ ...inputStyle, paddingLeft: 40 }}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Kamida 6 belgi"
+              placeholder={t('Kamida 6 belgi', 'Минимум 6 символов')}
             />
           </div>
           <button
             onClick={genPassword}
-            title="Tasodifiy parol yaratish"
+            title={t('Tasodifiy parol yaratish', 'Сгенерировать случайный пароль')}
             style={{ width: 48, borderRadius: 12, border: `1.5px solid ${C.line}`, background: C.white, color: C.teal, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >
             <RefreshCw size={18} />
@@ -690,16 +743,16 @@ function AdminCreateDoctor({ onBack, onError }) {
         </div>
       </Field>
 
-      <Field label="F.I.Sh.">
+      <Field label={t('F.I.Sh.', 'ФИО')}>
         <input
           style={inputStyle}
           value={fullName}
           onChange={(e) => setFullName(e.target.value)}
-          placeholder="Masalan: Yusupova Nilufar Baxtiyorovna"
+          placeholder={t('Masalan: Yusupova Nilufar Baxtiyorovna', 'Например: Юсупова Нилуфар Бахтияровна')}
         />
       </Field>
 
-      <Field label="Litsenziya / diplom raqami">
+      <Field label={t('Litsenziya / diplom raqami', 'Номер лицензии / диплома')}>
         <div style={{ position: 'relative' }}>
           <IdCard size={18} style={{ position: 'absolute', left: 12, top: 14, color: C.inkSoft }} />
           <input
@@ -712,7 +765,7 @@ function AdminCreateDoctor({ onBack, onError }) {
       </Field>
 
       <Btn variant="primary" full onClick={submit} disabled={busy} style={{ marginTop: 4 }}>
-        {busy ? 'Kutilmoqda…' : 'Hisob yaratish'}
+        {busy ? t('Kutilmoqda…', 'Подождите…') : t('Hisob yaratish', 'Создать аккаунт')}
       </Btn>
     </div>
   );
@@ -722,6 +775,7 @@ function AdminCreateDoctor({ onBack, onError }) {
    Ochiq ro'yxatdan o'tish yo'q — hisoblarni faqat admin yaratadi (litsenziyani
    qo'lda tekshirgach), shu bois bu yerda faqat login mavjud. */
 function DoctorAuth({ onBack }) {
+  const t = useT();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -730,16 +784,16 @@ function DoctorAuth({ onBack }) {
   const submit = async () => {
     setErr(null);
     const em = email.trim();
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return setErr('To\'g\'ri email kiriting.');
-    if (password.length < 6) return setErr('Parol kamida 6 belgidan iborat bo\'lishi kerak.');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)) return setErr(t("To'g'ri email kiriting.", 'Введите корректный email.'));
+    if (password.length < 6) return setErr(t("Parol kamida 6 belgidan iborat bo'lishi kerak.", 'Пароль должен быть не короче 6 символов.'));
     setBusy(true);
     try {
       await auth.signIn(em, password);
     } catch (e) {
       const m = (e && e.message) || '';
-      if (/Invalid login/i.test(m)) setErr('Email yoki parol noto\'g\'ri.');
-      else if (/confirm/i.test(m)) setErr('Email tasdiqlanmagan. Pochtangizni tekshiring.');
-      else setErr(m || 'Kirishda xatolik yuz berdi.');
+      if (/Invalid login/i.test(m)) setErr(t("Email yoki parol noto'g'ri.", 'Неверный email или пароль.'));
+      else if (/confirm/i.test(m)) setErr(t('Email tasdiqlanmagan. Pochtangizni tekshiring.', 'Email не подтверждён. Проверьте почту.'));
+      else setErr(m || t('Kirishda xatolik yuz berdi.', 'Ошибка при входе.'));
     } finally {
       setBusy(false);
     }
@@ -755,10 +809,10 @@ function DoctorAuth({ onBack }) {
         <Stethoscope size={30} />
       </div>
       <h1 style={{ fontFamily: SERIF, fontSize: 28, color: C.tealDeep, margin: '0 0 6px', fontWeight: 600 }}>
-        Shifokor hisobiga kirish
+        {t('Shifokor hisobiga kirish', 'Вход в аккаунт врача')}
       </h1>
       <p style={{ fontFamily: SANS, fontSize: 15, color: C.inkSoft, margin: '0 0 22px', lineHeight: 1.5 }}>
-        Email va parolingiz bilan kiring.
+        {t('Email va parolingiz bilan kiring.', 'Войдите с помощью email и пароля.')}
       </p>
 
       {err && <Banner type="error" icon={<AlertTriangle size={18} />} onClose={() => setErr(null)}>{err}</Banner>}
@@ -776,7 +830,7 @@ function DoctorAuth({ onBack }) {
           />
         </div>
       </Field>
-      <Field label="Parol">
+      <Field label={t('Parol', 'Пароль')}>
         <div style={{ position: 'relative' }}>
           <Lock size={18} style={{ position: 'absolute', left: 12, top: 14, color: C.inkSoft }} />
           <input
@@ -784,7 +838,7 @@ function DoctorAuth({ onBack }) {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Kamida 6 belgi"
+            placeholder={t('Kamida 6 belgi', 'Минимум 6 символов')}
             autoComplete="current-password"
             onKeyDown={(e) => e.key === 'Enter' && submit()}
           />
@@ -792,12 +846,14 @@ function DoctorAuth({ onBack }) {
       </Field>
 
       <Btn variant="primary" full onClick={submit} disabled={busy} style={{ marginTop: 4 }}>
-        {busy ? 'Kutilmoqda…' : 'Kirish'}
+        {busy ? t('Kutilmoqda…', 'Подождите…') : t('Kirish', 'Войти')}
       </Btn>
 
       <p style={{ textAlign: 'center', marginTop: 16, fontFamily: SANS, fontSize: 13.5, color: C.inkSoft, lineHeight: 1.5 }}>
-        Hisobingiz yo'qmi? Yangi shifokor hisoblari litsenziya tekshiruvidan so'ng
-        administrator tomonidan ochiladi.
+        {t(
+          "Hisobingiz yo'qmi? Yangi shifokor hisoblari litsenziya tekshiruvidan so'ng administrator tomonidan ochiladi.",
+          'Нет аккаунта? Новые аккаунты врачей открываются администратором после проверки лицензии.'
+        )}
       </p>
     </div>
   );
@@ -805,14 +861,15 @@ function DoctorAuth({ onBack }) {
 
 /* Mavjud shifokor hisobida F.I.Sh/litsenziya bo'lmasa — bir martalik to'ldirish */
 function DoctorProfileSetup({ uid, email, onDone, onError }) {
+  const t = useT();
   const [fullName, setFullName] = useState('');
   const [licenseNumber, setLicenseNumber] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
 
   const submit = async () => {
-    if (!fullName.trim()) return setErr('F.I.Sh. kiriting.');
-    if (!licenseNumber.trim()) return setErr('Litsenziya/diplom raqamini kiriting.');
+    if (!fullName.trim()) return setErr(t('F.I.Sh. kiriting.', 'Введите ФИО.'));
+    if (!licenseNumber.trim()) return setErr(t('Litsenziya/diplom raqamini kiriting.', 'Введите номер лицензии/диплома.'));
     setErr(null);
     setBusy(true);
     try {
@@ -820,7 +877,7 @@ function DoctorProfileSetup({ uid, email, onDone, onError }) {
       await store.set(`doctor:${uid}`, profile, true);
       onDone(profile);
     } catch (e) {
-      onError("Profilni saqlab bo'lmadi. Qaytadan urinib ko'ring.");
+      onError(t("Profilni saqlab bo'lmadi. Qaytadan urinib ko'ring.", 'Не удалось сохранить профиль. Попробуйте ещё раз.'));
     } finally {
       setBusy(false);
     }
@@ -831,22 +888,25 @@ function DoctorProfileSetup({ uid, email, onDone, onError }) {
       <div style={{ width: 60, height: 60, borderRadius: 16, background: '#E9F0F1', color: C.teal, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
         <IdCard size={30} />
       </div>
-      <h1 style={{ fontFamily: SERIF, fontSize: 26, color: C.tealDeep, margin: '0 0 6px', fontWeight: 600 }}>Profilni to'ldiring</h1>
+      <h1 style={{ fontFamily: SERIF, fontSize: 26, color: C.tealDeep, margin: '0 0 6px', fontWeight: 600 }}>{t("Profilni to'ldiring", 'Заполните профиль')}</h1>
       <p style={{ fontFamily: SANS, fontSize: 15, color: C.inkSoft, margin: '0 0 22px', lineHeight: 1.5 }}>
-        Bemorlar va dorixonalar retseptni kim yozganini ko'rishi uchun F.I.Sh. va litsenziya raqamingiz kerak.
+        {t(
+          "Bemorlar va dorixonalar retseptni kim yozganini ko'rishi uchun F.I.Sh. va litsenziya raqamingiz kerak.",
+          'Пациентам и аптекам нужно видеть, кто выписал рецепт, поэтому укажите ФИО и номер лицензии.'
+        )}
       </p>
 
       {err && <Banner type="error" icon={<AlertTriangle size={18} />} onClose={() => setErr(null)}>{err}</Banner>}
 
-      <Field label="F.I.Sh.">
-        <input style={inputStyle} value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Masalan: Yusupova Nilufar Baxtiyorovna" />
+      <Field label={t('F.I.Sh.', 'ФИО')}>
+        <input style={inputStyle} value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder={t('Masalan: Yusupova Nilufar Baxtiyorovna', 'Например: Юсупова Нилуфар Бахтияровна')} />
       </Field>
-      <Field label="Litsenziya / diplom raqami">
+      <Field label={t('Litsenziya / diplom raqami', 'Номер лицензии / диплома')}>
         <input style={inputStyle} value={licenseNumber} onChange={(e) => setLicenseNumber(e.target.value)} placeholder="Masalan: VRC-2019-04521" onKeyDown={(e) => e.key === 'Enter' && submit()} />
       </Field>
 
       <Btn variant="primary" full onClick={submit} disabled={busy} style={{ marginTop: 4 }}>
-        {busy ? 'Saqlanmoqda…' : 'Saqlash va davom etish'}
+        {busy ? t('Saqlanmoqda…', 'Сохранение…') : t('Saqlash va davom etish', 'Сохранить и продолжить')}
       </Btn>
     </div>
   );
@@ -876,6 +936,7 @@ function TopBar({ title, subtitle, onBack, right }) {
    SHIFOKOR
    ========================================================================= */
 function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
+  const t = useT();
   const [patients, setPatients] = useState([]);
   const [view, setView] = useState('list'); // list | patient
   const [selected, setSelected] = useState(null); // code
@@ -892,11 +953,11 @@ function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
       const list = (await store.get(`patients:${doctorId}`, true)) || [];
       setPatients(list);
     } catch (e) {
-      onError("Bemorlar ro'yxatini yuklab bo'lmadi.");
+      onError(t("Bemorlar ro'yxatini yuklab bo'lmadi.", 'Не удалось загрузить список пациентов.'));
     } finally {
       setLoading(false);
     }
-  }, [doctorId, onError]);
+  }, [doctorId, onError, t]);
 
   useEffect(() => {
     loadPatients();
@@ -972,11 +1033,11 @@ function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
   return (
     <div>
       <TopBar
-        title="Shifokor paneli"
-        subtitle={doctorProfile ? `${doctorProfile.fullName} · Litsenziya: ${doctorProfile.licenseNumber}` : (email || 'Bemorlar va retseptlar')}
+        title={t('Shifokor paneli', 'Панель врача')}
+        subtitle={doctorProfile ? `${doctorProfile.fullName} · ${t('Litsenziya', 'Лицензия')}: ${doctorProfile.licenseNumber}` : (email || t('Bemorlar va retseptlar', 'Пациенты и рецепты'))}
         right={
           <Btn variant="quiet" onClick={onLogout} style={{ padding: '10px 12px', fontSize: 14 }}>
-            <LogOut size={16} /> Chiqish
+            <LogOut size={16} /> {t('Chiqish', 'Выйти')}
           </Btn>
         }
       />
@@ -986,19 +1047,19 @@ function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
         {patients.length > 0 && overall && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 4 }}>
             <StatBox
-              label="Bugungi qabul foizi (barcha bemorlar)"
+              label={t('Bugungi qabul foizi (barcha bemorlar)', 'Процент приёма сегодня (все пациенты)')}
               value={overall.todayTotal ? `${Math.round((overall.todayTaken / overall.todayTotal) * 100)}%` : '—'}
               color={C.sage}
             />
             <StatBox
-              label="So'nggi 7 kun qabul foizi"
+              label={t("So'nggi 7 kun qabul foizi", 'Процент приёма за 7 дней')}
               value={overall.weekTotal ? `${Math.round((overall.weekTaken / overall.weekTotal) * 100)}%` : '—'}
               color={C.teal}
             />
           </div>
         )}
 
-        <SectionTitle icon={<Users size={18} color={C.teal} />}>Bemorlar ({patients.length})</SectionTitle>
+        <SectionTitle icon={<Users size={18} color={C.teal} />}>{t('Bemorlar', 'Пациенты')} ({patients.length})</SectionTitle>
 
         {patients.length > 0 && (
           <div style={{ marginBottom: 12 }}>
@@ -1008,7 +1069,7 @@ function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
                 style={{ ...inputStyle, paddingLeft: 38 }}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Ism, tashxis yoki kod bo'yicha qidirish"
+                placeholder={t("Ism, tashxis yoki kod bo'yicha qidirish", 'Поиск по имени, диагнозу или коду')}
               />
             </div>
             <button
@@ -1021,17 +1082,17 @@ function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
                 fontFamily: SANS, fontSize: 13, fontWeight: 600, cursor: 'pointer',
               }}
             >
-              <ShieldAlert size={14} /> Faqat diqqat talab qiladiganlar{overall?.dangerCodes?.length ? ` (${overall.dangerCodes.length})` : ''}
+              <ShieldAlert size={14} /> {t('Faqat diqqat talab qiladiganlar', 'Только требующие внимания')}{overall?.dangerCodes?.length ? ` (${overall.dangerCodes.length})` : ''}
             </button>
           </div>
         )}
 
         {loading ? (
-          <div style={{ color: C.inkSoft, padding: 20, textAlign: 'center' }}>Yuklanmoqda…</div>
+          <div style={{ color: C.inkSoft, padding: 20, textAlign: 'center' }}>{t('Yuklanmoqda…', 'Загрузка…')}</div>
         ) : patients.length === 0 ? (
-          <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 26 }}>Hozircha bemor yo'q. Yuqoridan yangi bemor qo'shing.</Card>
+          <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 26 }}>{t("Hozircha bemor yo'q. Yuqoridan yangi bemor qo'shing.", 'Пока нет пациентов. Добавьте нового пациента выше.')}</Card>
         ) : filtered.length === 0 ? (
-          <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 26 }}>Qidiruvga mos bemor topilmadi.</Card>
+          <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 26 }}>{t('Qidiruvga mos bemor topilmadi.', 'По запросу пациенты не найдены.')}</Card>
         ) : (
           <div style={{ display: 'grid', gap: 10 }}>
             {filtered
@@ -1049,6 +1110,7 @@ function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
 
 /* Yangi bemor qo'shish */
 function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [diagnosis, setDiagnosis] = useState('');
@@ -1059,11 +1121,11 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
 
   const submit = async () => {
     if (!name.trim() || !diagnosis.trim()) {
-      onError('Ism va tashxisni to\'ldiring.');
+      onError(t("Ism va tashxisni to'ldiring.", 'Заполните имя и диагноз.'));
       return;
     }
     if (birthYear && !validBirthYear(birthYear)) {
-      onError(`Tug'ilgan yil 1900–${curYear()} oralig'ida bo'lsin (yoki bo'sh qoldiring).`);
+      onError(t(`Tug'ilgan yil 1900–${curYear()} oralig'ida bo'lsin (yoki bo'sh qoldiring).`, `Год рождения должен быть в диапазоне 1900–${curYear()} (или оставьте поле пустым).`));
       return;
     }
     setSaving(true);
@@ -1099,7 +1161,7 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
       setBirthYear('');
       onAdded();
     } catch (e) {
-      onError("Bemorni saqlab bo'lmadi. Qaytadan urinib ko'ring.");
+      onError(t("Bemorni saqlab bo'lmadi. Qaytadan urinib ko'ring.", 'Не удалось сохранить пациента. Попробуйте ещё раз.'));
     } finally {
       setSaving(false);
     }
@@ -1108,7 +1170,7 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
   if (newCode) {
     return (
       <Card style={{ background: C.teal, border: 'none', color: C.paper }}>
-        <div style={{ fontFamily: SANS, fontSize: 14, opacity: 0.85 }}>Bemor qo'shildi. Ushbu kodni bemorga bering:</div>
+        <div style={{ fontFamily: SANS, fontSize: 14, opacity: 0.85 }}>{t('Bemor qo\'shildi. Ushbu kodni bemorga bering:', 'Пациент добавлен. Передайте этот код пациенту:')}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '10px 0 6px' }}>
           <div style={{ fontFamily: SERIF, fontSize: 40, letterSpacing: 6, fontWeight: 700, color: C.gold }}>{newCode}</div>
           <Btn
@@ -1118,11 +1180,11 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
             }}
             style={{ padding: '10px 12px' }}
           >
-            <Copy size={16} /> Nusxa
+            <Copy size={16} /> {t('Nusxa', 'Копия')}
           </Btn>
         </div>
         <Btn variant="quiet" full onClick={() => setNewCode(null)} style={{ marginTop: 8 }}>
-          Yaxshi, yopish
+          {t('Yaxshi, yopish', 'Хорошо, закрыть')}
         </Btn>
       </Card>
     );
@@ -1132,36 +1194,36 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
     <Card>
       {!open ? (
         <Btn variant="primary" full onClick={() => setOpen(true)}>
-          <UserPlus size={18} /> Yangi bemor qo'shish
+          <UserPlus size={18} /> {t("Yangi bemor qo'shish", 'Добавить пациента')}
         </Btn>
       ) : (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <div style={{ fontFamily: SERIF, fontSize: 18, color: C.tealDeep, fontWeight: 600 }}>Yangi bemor</div>
+            <div style={{ fontFamily: SERIF, fontSize: 18, color: C.tealDeep, fontWeight: 600 }}>{t('Yangi bemor', 'Новый пациент')}</div>
             <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.inkSoft }}>
               <X size={20} />
             </button>
           </div>
-          <Field label="Bemor ismi">
-            <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Masalan: Karimova Dilnoza" />
+          <Field label={t('Bemor ismi', 'Имя пациента')}>
+            <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder={t('Masalan: Karimova Dilnoza', 'Например: Каримова Дилноза')} />
           </Field>
-          <Field label="Tashxis">
-            <input style={inputStyle} value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} placeholder="Masalan: Gipertoniya II daraja" />
+          <Field label={t('Tashxis', 'Диагноз')}>
+            <input style={inputStyle} value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} placeholder={t('Masalan: Gipertoniya II daraja', 'Например: Гипертония II степени')} />
           </Field>
           <div style={{ display: 'flex', gap: 10 }}>
             <div style={{ flex: 1.4 }}>
-              <Field label="Telefon" hint="Ixtiyoriy">
+              <Field label={t('Telefon', 'Телефон')} hint={t('Ixtiyoriy', 'Необязательно')}>
                 <input style={inputStyle} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+998 90 123 45 67" />
               </Field>
             </div>
             <div style={{ flex: 1 }}>
-              <Field label="Tug'ilgan yil" hint="Ixtiyoriy">
+              <Field label={t("Tug'ilgan yil", 'Год рождения')} hint={t('Ixtiyoriy', 'Необязательно')}>
                 <input style={inputStyle} value={birthYear} onChange={(e) => setBirthYear(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))} placeholder="1985" inputMode="numeric" />
               </Field>
             </div>
           </div>
           <Btn variant="gold" full onClick={submit} disabled={saving}>
-            {saving ? 'Saqlanmoqda…' : 'Qo\'shish va kod olish'}
+            {saving ? t('Saqlanmoqda…', 'Сохранение…') : t("Qo'shish va kod olish", 'Добавить и получить код')}
           </Btn>
         </div>
       )}
@@ -1171,6 +1233,7 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
 
 /* Bemor qatori — statistika va ogohlantirish belgisi bilan */
 function PatientRow({ patient, tick, onOpen, onError }) {
+  const t = useT();
   const [stats, setStats] = useState(null);
 
   useEffect(() => {
@@ -1180,11 +1243,11 @@ function PatientRow({ patient, tick, onOpen, onError }) {
         const s = await computeStats(patient.code);
         if (!cancelled) setStats(s);
       } catch (e) {
-        onError("Statistikani hisoblab bo'lmadi.");
+        onError(t("Statistikani hisoblab bo'lmadi.", 'Не удалось рассчитать статистику.'));
       }
     })();
     return () => { cancelled = true; };
-  }, [patient.code, tick, onError]);
+  }, [patient.code, tick, onError, t]);
 
   const danger = stats && stats.missed3 >= 3;
 
@@ -1204,8 +1267,8 @@ function PatientRow({ patient, tick, onOpen, onError }) {
         <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{patient.diagnosis}</div>
         {stats && (
           <div style={{ display: 'flex', gap: 10, marginTop: 5, flexWrap: 'wrap' }}>
-            <Pill_ text={`Bugun: ${stats.takenToday}/${stats.totalToday}`} color={C.teal} />
-            {danger && <Pill_ text={`3 kunda ${stats.missed3} o'tkazib yuborilgan`} color={C.red} />}
+            <Pill_ text={`${t('Bugun', 'Сегодня')}: ${stats.takenToday}/${stats.totalToday}`} color={C.teal} />
+            {danger && <Pill_ text={t(`3 kunda ${stats.missed3} o'tkazib yuborilgan`, `Пропущено за 3 дня: ${stats.missed3}`)} color={C.red} />}
           </div>
         )}
       </div>
@@ -1292,6 +1355,7 @@ async function computeWeek(code) {
 
 /* Haftalik tarix ko'rinishi (bemor + shifokor) */
 function WeeklyHistory({ code, refreshKey }) {
+  const t = useT();
   const [data, setData] = useState(null);
   const [err, setErr] = useState(false);
   useEffect(() => {
@@ -1303,10 +1367,10 @@ function WeeklyHistory({ code, refreshKey }) {
     return () => { cancelled = true; };
   }, [code, refreshKey]);
 
-  if (err) return <Card style={{ textAlign: 'center', color: C.red, padding: 16 }}>Tarixni yuklab bo'lmadi.</Card>;
-  if (!data) return <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 16 }}>Yuklanmoqda…</Card>;
+  if (err) return <Card style={{ textAlign: 'center', color: C.red, padding: 16 }}>{t("Tarixni yuklab bo'lmadi.", 'Не удалось загрузить историю.')}</Card>;
+  if (!data) return <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 16 }}>{t('Yuklanmoqda…', 'Загрузка…')}</Card>;
 
-  const WD = ['Ya', 'Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sh'];
+  const WD = t('Ya,Du,Se,Ch,Pa,Ju,Sh', 'Вс,Пн,Вт,Ср,Чт,Пт,Сб').split(',');
   const colorFor = (st) => (st === 'full' ? C.sage : st === 'partial' ? C.gold : st === 'missed' ? C.red : C.paperSoft);
   const anyMeds = data.days.some((d) => d.total > 0);
 
@@ -1317,7 +1381,7 @@ function WeeklyHistory({ code, refreshKey }) {
           <div key={d.date} style={{ flex: 1, textAlign: 'center', minWidth: 0 }}>
             <div style={{ fontFamily: SANS, fontSize: 11, color: d.isToday ? C.tealDeep : C.inkSoft, fontWeight: d.isToday ? 700 : 500, marginBottom: 6 }}>{WD[d.dow]}</div>
             <div
-              title={`${d.date}: ${d.total ? `${d.taken}/${d.total} doza` : 'dori yo\'q'}`}
+              title={`${d.date}: ${d.total ? `${d.taken}/${d.total} ${t('doza', 'доз')}` : t("dori yo'q", 'нет лекарств')}`}
               style={{
                 height: 36, borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 background: colorFor(d.status),
@@ -1333,11 +1397,11 @@ function WeeklyHistory({ code, refreshKey }) {
       </div>
       <div style={{ textAlign: 'center', marginTop: 12 }}>
         {!anyMeds ? (
-          <span style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft }}>So'nggi 7 kunda dori tayinlanmagan</span>
+          <span style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft }}>{t("So'nggi 7 kunda dori tayinlanmagan", 'За последние 7 дней лекарств не назначено')}</span>
         ) : data.streak > 0 ? (
-          <span style={{ fontFamily: SANS, fontSize: 14, color: '#3E5637', fontWeight: 700 }}>🔥 {data.streak} kun ketma-ket to'liq</span>
+          <span style={{ fontFamily: SANS, fontSize: 14, color: '#3E5637', fontWeight: 700 }}>🔥 {t(`${data.streak} kun ketma-ket to'liq`, `${data.streak} дн. подряд полностью`)}</span>
         ) : (
-          <span style={{ fontFamily: SANS, fontSize: 13.5, color: C.inkSoft }}>Ketma-ketlik yo'q — bugun to'liq qabul qilib boshlang</span>
+          <span style={{ fontFamily: SANS, fontSize: 13.5, color: C.inkSoft }}>{t("Ketma-ketlik yo'q — bugun to'liq qabul qilib boshlang", 'Серии нет — начните сегодня с полного приёма')}</span>
         )}
       </div>
     </Card>
@@ -1346,6 +1410,8 @@ function WeeklyHistory({ code, refreshKey }) {
 
 /* Shifokor: bitta bemor sahifasi — retsept + statistika */
 function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDeletedPatient }) {
+  const t = useT();
+  const lang = useContext(LangContext);
   const [patient, setPatient] = useState(null);
   const [rx, setRx] = useState({ medicines: [] });
   const [stats, setStats] = useState(null);
@@ -1374,11 +1440,11 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
       setTemplates(t);
       setStats(await computeStats(code));
     } catch (e) {
-      onError("Bemor ma'lumotini yuklab bo'lmadi.");
+      onError(t("Bemor ma'lumotini yuklab bo'lmadi.", 'Не удалось загрузить данные пациента.'));
     } finally {
       setLoading(false);
     }
-  }, [code, doctorId, onError]);
+  }, [code, doctorId, onError, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -1416,7 +1482,7 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
         await store.set(`audit:${code}`, [...auditList, entry].slice(-100), true);
       } catch (e) { /* audit yozilmasa ham retsept saqlanadi — jim o'tkazamiz */ }
     } catch (e) {
-      onError("Retseptni saqlab bo'lmadi.");
+      onError(t("Retseptni saqlab bo'lmadi.", 'Не удалось сохранить рецепт.'));
     }
   };
 
@@ -1424,20 +1490,20 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
     const list = rx.medicines || [];
     const exists = list.some((m) => m.id === med.id);
     const next = exists ? list.map((m) => (m.id === med.id ? med : m)) : [...list, med];
-    await saveRx(next, exists ? 'dori tahrirlandi' : 'dori qo\'shildi');
+    await saveRx(next, exists ? t('dori tahrirlandi', 'лекарство изменено') : t("dori qo'shildi", 'лекарство добавлено'));
     setEditing(null);
   };
 
   const deleteMed = async (id) => {
-    if (!window.confirm('Bu dorini o\'chirasizmi?')) return;
-    await saveRx((rx.medicines || []).filter((m) => m.id !== id), 'dori o\'chirildi');
+    if (!window.confirm(t('Bu dorini o\'chirasizmi?', 'Удалить это лекарство?'))) return;
+    await saveRx((rx.medicines || []).filter((m) => m.id !== id), t('dori o\'chirildi', 'лекарство удалено'));
   };
 
   /* Umumiy retsept: avval faqat dori nomlarini tez kiritish, doza/vaqt
      keyinroq har biri uchun alohida belgilanadi (needsSetup = true). */
   const addQuickMeds = async (names) => {
     const clean = names.map((n) => n.trim()).filter(Boolean);
-    if (!clean.length) return onError('Kamida bitta dori nomini kiriting.');
+    if (!clean.length) return onError(t('Kamida bitta dori nomini kiriting.', 'Введите хотя бы одно название лекарства.'));
     const newMeds = clean.map((name) => ({
       id: uid(),
       name,
@@ -1447,7 +1513,7 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
       startDate: todayStr(),
       instructions: '',
     }));
-    await saveRx([...(rx.medicines || []), ...newMeds], `umumiy retseptga qo'shildi (${newMeds.length} ta dori)`);
+    await saveRx([...(rx.medicines || []), ...newMeds], t(`umumiy retseptga qo'shildi (${newMeds.length} ta dori)`, `добавлено в общий рецепт (${newMeds.length} лек.)`));
     setQuickMode(false);
   };
 
@@ -1456,15 +1522,15 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
 
   const applyTemplate = async (tpl) => {
     const newMeds = (tpl.medicines || []).map((m) => ({ ...stripMed(m), id: uid(), startDate: todayStr() }));
-    if (!newMeds.length) return onError('Bu shablonda dori yo\'q.');
-    await saveRx([...(rx.medicines || []), ...newMeds], 'shablondan qo\'shildi');
+    if (!newMeds.length) return onError(t('Bu shablonda dori yo\'q.', 'В этом шаблоне нет лекарств.'));
+    await saveRx([...(rx.medicines || []), ...newMeds], t('shablondan qo\'shildi', 'добавлено из шаблона'));
     setTplMode(null);
   };
 
   const saveAsTemplate = async () => {
     const title = tplTitle.trim();
-    if (!title) return onError('Shablon nomini kiriting.');
-    if (!(rx.medicines || []).length) return onError('Saqlash uchun retseptda kamida bitta dori bo\'lishi kerak.');
+    if (!title) return onError(t('Shablon nomini kiriting.', 'Введите название шаблона.'));
+    if (!(rx.medicines || []).length) return onError(t('Saqlash uchun retseptda kamida bitta dori bo\'lishi kerak.', 'Для сохранения в рецепте должно быть хотя бы одно лекарство.'));
     try {
       const list = (await store.get(`templates:${doctorId}`, true)) || [];
       const rec = { id: uid(), title, medicines: (rx.medicines || []).map(stripMed) };
@@ -1474,25 +1540,25 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
       setTplMode(null);
       setTplTitle('');
     } catch (e) {
-      onError("Shablonni saqlab bo'lmadi.");
+      onError(t("Shablonni saqlab bo'lmadi.", 'Не удалось сохранить шаблон.'));
     }
   };
 
   const deleteTemplate = async (id) => {
-    if (!window.confirm('Shablonni o\'chirasizmi?')) return;
+    if (!window.confirm(t('Shablonni o\'chirasizmi?', 'Удалить шаблон?'))) return;
     try {
-      const next = templates.filter((t) => t.id !== id);
+      const next = templates.filter((tpl) => tpl.id !== id);
       await store.set(`templates:${doctorId}`, next, true);
       setTemplates(next);
     } catch (e) {
-      onError("Shablonni o'chirib bo'lmadi.");
+      onError(t("Shablonni o'chirib bo'lmadi.", 'Не удалось удалить шаблон.'));
     }
   };
 
   const savePatientInfo = async () => {
     const name = eName.trim(), diagnosis = eDx.trim(), phone = ePhone.trim();
-    if (!name || !diagnosis) return onError('Ism va tashxis bo\'sh bo\'lmasin.');
-    if (eYear && !validBirthYear(eYear)) return onError(`Tug'ilgan yil 1900–${curYear()} oralig'ida bo'lsin (yoki bo'sh qoldiring).`);
+    if (!name || !diagnosis) return onError(t('Ism va tashxis bo\'sh bo\'lmasin.', 'Имя и диагноз не должны быть пустыми.'));
+    if (eYear && !validBirthYear(eYear)) return onError(t(`Tug'ilgan yil 1900–${curYear()} oralig'ida bo'lsin (yoki bo'sh qoldiring).`, `Год рождения должен быть в диапазоне 1900–${curYear()} (или оставьте поле пустым).`));
     const birthYear = eYear ? Number(eYear) : null;
     try {
       const next = { ...patient, name, diagnosis, phone, birthYear };
@@ -1502,12 +1568,12 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
       setPatient(next);
       setEditInfo(false);
     } catch (e) {
-      onError("Ma'lumotni saqlab bo'lmadi.");
+      onError(t("Ma'lumotni saqlab bo'lmadi.", 'Не удалось сохранить данные.'));
     }
   };
 
   const deletePatient = async () => {
-    if (!window.confirm(`${patient?.name || 'Bemor'}ni butunlay o'chirasizmi? Retsept va tarix ham o'chadi.`)) return;
+    if (!window.confirm(t(`${patient?.name || 'Bemor'}ni butunlay o'chirasizmi? Retsept va tarix ham o'chadi.`, `Полностью удалить ${patient?.name || 'пациента'}? Рецепт и история тоже будут удалены.`))) return;
     try {
       const list = (await store.get(`patients:${doctorId}`, true)) || [];
       await store.set(`patients:${doctorId}`, list.filter((p) => p.code !== code), true);
@@ -1519,15 +1585,15 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
       await store.removePrefixed(`pushlog:${code}:`);
       onDeletedPatient();
     } catch (e) {
-      onError("Bemorni o'chirib bo'lmadi.");
+      onError(t("Bemorni o'chirib bo'lmadi.", 'Не удалось удалить пациента.'));
     }
   };
 
-  if (loading) return <div style={{ padding: 30, textAlign: 'center', color: C.inkSoft }}>Yuklanmoqda…</div>;
+  if (loading) return <div style={{ padding: 30, textAlign: 'center', color: C.inkSoft }}>{t('Yuklanmoqda…', 'Загрузка…')}</div>;
   if (!patient) return (
     <div>
-      <TopBar title="Topilmadi" onBack={onBack} />
-      <div style={{ padding: 16 }}><Banner type="error" icon={<AlertTriangle size={18} />}>Bemor topilmadi.</Banner></div>
+      <TopBar title={t('Topilmadi', 'Не найдено')} onBack={onBack} />
+      <div style={{ padding: 16 }}><Banner type="error" icon={<AlertTriangle size={18} />}>{t('Bemor topilmadi.', 'Пациент не найден.')}</Banner></div>
     </div>
   );
 
@@ -1535,13 +1601,13 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
 
   return (
     <div>
-      <TopBar title={patient.name} subtitle={`Kod: ${patient.code}`} onBack={onBack} />
+      <TopBar title={patient.name} subtitle={`${t('Kod', 'Код')}: ${patient.code}`} onBack={onBack} />
       <div style={{ padding: 16 }}>
         {!editInfo ? (
           <Card style={{ marginBottom: 4 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 2 }}>Bemor</div>
+                <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 2 }}>{t('Bemor', 'Пациент')}</div>
                 <div style={{ fontFamily: SANS, fontSize: 16, color: C.ink, fontWeight: 700, marginBottom: 2 }}>{patient.name}</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 8 }}>
                   {patient.phone && (
@@ -1551,67 +1617,67 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
                   )}
                   {patient.birthYear && (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: SANS, fontSize: 13.5, color: C.inkSoft }}>
-                      <CalendarDays size={14} /> {patient.birthYear}-y. ({curYear() - patient.birthYear} yosh)
+                      <CalendarDays size={14} /> {patient.birthYear}-{t('y.', 'г.')} ({curYear() - patient.birthYear} {t('yosh', 'лет')})
                     </span>
                   )}
                 </div>
-                <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 2 }}>Tashxis</div>
+                <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 2 }}>{t('Tashxis', 'Диагноз')}</div>
                 <div style={{ fontFamily: SERIF, fontSize: 19, color: C.tealDeep, fontWeight: 600 }}>{patient.diagnosis}</div>
               </div>
-              <button onClick={() => { setEName(patient.name); setEDx(patient.diagnosis); setEPhone(patient.phone || ''); setEYear(patient.birthYear ? String(patient.birthYear) : ''); setEditInfo(true); }} title="Tahrirlash" style={iconBtn}>
+              <button onClick={() => { setEName(patient.name); setEDx(patient.diagnosis); setEPhone(patient.phone || ''); setEYear(patient.birthYear ? String(patient.birthYear) : ''); setEditInfo(true); }} title={t('Tahrirlash', 'Редактировать')} style={iconBtn}>
                 <Pencil size={16} />
               </button>
             </div>
           </Card>
         ) : (
           <Card style={{ marginBottom: 4, border: `1.5px solid ${C.gold}`, background: '#FFFDF7' }}>
-            <div style={{ fontFamily: SERIF, fontSize: 17, color: C.tealDeep, fontWeight: 600, marginBottom: 10 }}>Bemor ma'lumotini tahrirlash</div>
-            <Field label="Bemor ismi">
-              <input style={inputStyle} value={eName} onChange={(e) => setEName(e.target.value)} placeholder="Ism familiya" />
+            <div style={{ fontFamily: SERIF, fontSize: 17, color: C.tealDeep, fontWeight: 600, marginBottom: 10 }}>{t("Bemor ma'lumotini tahrirlash", 'Редактировать данные пациента')}</div>
+            <Field label={t('Bemor ismi', 'Имя пациента')}>
+              <input style={inputStyle} value={eName} onChange={(e) => setEName(e.target.value)} placeholder={t('Ism familiya', 'Имя и фамилия')} />
             </Field>
-            <Field label="Tashxis">
-              <input style={inputStyle} value={eDx} onChange={(e) => setEDx(e.target.value)} placeholder="Tashxis" />
+            <Field label={t('Tashxis', 'Диагноз')}>
+              <input style={inputStyle} value={eDx} onChange={(e) => setEDx(e.target.value)} placeholder={t('Tashxis', 'Диагноз')} />
             </Field>
             <div style={{ display: 'flex', gap: 10 }}>
               <div style={{ flex: 1.4 }}>
-                <Field label="Telefon" hint="Ixtiyoriy">
+                <Field label={t('Telefon', 'Телефон')} hint={t('Ixtiyoriy', 'Необязательно')}>
                   <input style={inputStyle} type="tel" value={ePhone} onChange={(e) => setEPhone(e.target.value)} placeholder="+998 90 123 45 67" />
                 </Field>
               </div>
               <div style={{ flex: 1 }}>
-                <Field label="Tug'ilgan yil" hint="Ixtiyoriy">
+                <Field label={t("Tug'ilgan yil", 'Год рождения')} hint={t('Ixtiyoriy', 'Необязательно')}>
                   <input style={inputStyle} value={eYear} onChange={(e) => setEYear(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))} placeholder="1985" inputMode="numeric" onKeyDown={(e) => e.key === 'Enter' && savePatientInfo()} />
                 </Field>
               </div>
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
-              <Btn variant="ghost" onClick={() => setEditInfo(false)} style={{ flex: 1 }}>Bekor qilish</Btn>
-              <Btn variant="gold" onClick={savePatientInfo} style={{ flex: 1 }}>Saqlash</Btn>
+              <Btn variant="ghost" onClick={() => setEditInfo(false)} style={{ flex: 1 }}>{t('Bekor qilish', 'Отмена')}</Btn>
+              <Btn variant="gold" onClick={savePatientInfo} style={{ flex: 1 }}>{t('Saqlash', 'Сохранить')}</Btn>
             </div>
           </Card>
         )}
 
         {danger && (
           <div style={{ marginTop: 12 }}>
-            <Banner type="error" icon={<ShieldAlert size={18} />} title="Diqqat talab qiladi">
-              Bemor so'nggi 3 kunda <b>{stats.missed3} ta</b> dozani o'tkazib yubordi. Bog'lanib holatini so'rang.
+            <Banner type="error" icon={<ShieldAlert size={18} />} title={t('Diqqat talab qiladi', 'Требует внимания')}>
+              {t(`Bemor so'nggi 3 kunda ${stats.missed3} ta dozani o'tkazib yubordi. Bog'lanib holatini so'rang.`, `Пациент пропустил ${stats.missed3} доз(ы) за последние 3 дня. Свяжитесь и уточните состояние.`)}
             </Banner>
           </div>
         )}
 
         {/* Statistika */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
-          <StatBox label="Bugun qabul qilingan" value={`${stats.takenToday}/${stats.totalToday}`} color={C.sage} />
-          <StatBox label="3 kunda o'tkazib yuborilgan" value={stats.missed3} color={stats.missed3 >= 3 ? C.red : C.teal} />
+          <StatBox label={t('Bugun qabul qilingan', 'Принято сегодня')} value={`${stats.takenToday}/${stats.totalToday}`} color={C.sage} />
+          <StatBox label={t("3 kunda o'tkazib yuborilgan", 'Пропущено за 3 дня')} value={stats.missed3} color={stats.missed3 >= 3 ? C.red : C.teal} />
         </div>
 
         {/* Haftalik tarix */}
-        <SectionTitle icon={<CalendarDays size={18} color={C.teal} />}>So'nggi 7 kun</SectionTitle>
+        <SectionTitle icon={<CalendarDays size={18} color={C.teal} />}>{t("So'nggi 7 kun", 'Последние 7 дней')}</SectionTitle>
         <WeeklyHistory code={code} refreshKey={(rx.medicines || []).length} />
 
         {/* Retsept */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <SectionTitle icon={<ClipboardList size={18} color={C.teal} />}>Retsept</SectionTitle>
+          <SectionTitle icon={<ClipboardList size={18} color={C.teal} />}>{t('Retsept', 'Рецепт')}</SectionTitle>
           <button
             onClick={async () => {
               const opening = !showAudit;
@@ -1622,27 +1688,27 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
                 // shuning uchun eski (keshlangan) natijani ko'rsatmaymiz.
                 setAudit(null);
                 try { setAudit((await store.get(`audit:${code}`, true)) || []); }
-                catch (e) { onError("O'zgarishlar tarixini yuklab bo'lmadi."); setAudit([]); }
+                catch (e) { onError(t("O'zgarishlar tarixini yuklab bo'lmadi.", 'Не удалось загрузить историю изменений.')); setAudit([]); }
               }
             }}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.teal, display: 'flex', alignItems: 'center', gap: 5, fontFamily: SANS, fontSize: 13, fontWeight: 600 }}
           >
-            <History size={15} /> Tarix
+            <History size={15} /> {t('Tarix', 'История')}
           </button>
         </div>
 
         {showAudit && (
           <Card style={{ marginBottom: 10, background: C.paperSoft }}>
             {audit === null ? (
-              <div style={{ color: C.inkSoft, fontSize: 13.5 }}>Yuklanmoqda…</div>
+              <div style={{ color: C.inkSoft, fontSize: 13.5 }}>{t('Yuklanmoqda…', 'Загрузка…')}</div>
             ) : audit.length === 0 ? (
-              <div style={{ color: C.inkSoft, fontSize: 13.5 }}>Hali o'zgarish yo'q.</div>
+              <div style={{ color: C.inkSoft, fontSize: 13.5 }}>{t("Hali o'zgarish yo'q.", 'Изменений пока нет.')}</div>
             ) : (
               <div style={{ display: 'grid', gap: 6 }}>
                 {audit.slice().reverse().slice(0, 15).map((a, i) => (
                   <div key={i} style={{ fontFamily: SANS, fontSize: 12.5, color: C.ink, borderBottom: i < audit.length - 1 ? `1px solid ${C.line}` : 'none', paddingBottom: 5 }}>
-                    <span style={{ color: C.inkSoft }}>{new Date(a.at).toLocaleString('uz-UZ')}</span> — {a.action}
-                    {a.doctorName && <span style={{ color: C.inkSoft }}> ({a.doctorName}{a.doctorLicense ? `, litsenziya: ${a.doctorLicense}` : ''})</span>}
+                    <span style={{ color: C.inkSoft }}>{new Date(a.at).toLocaleString(lang === 'ru' ? 'ru-RU' : 'uz-UZ')}</span> — {a.action}
+                    {a.doctorName && <span style={{ color: C.inkSoft }}> ({a.doctorName}{a.doctorLicense ? `, ${t('litsenziya', 'лицензия')}: ${a.doctorLicense}` : ''})</span>}
                   </div>
                 ))}
               </div>
@@ -1651,7 +1717,7 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
         )}
 
         {(rx.medicines || []).length === 0 && !editing && (
-          <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 22 }}>Hali dori tayinlanmagan.</Card>
+          <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 22 }}>{t('Hali dori tayinlanmagan.', 'Лекарства ещё не назначены.')}</Card>
         )}
 
         <div style={{ display: 'grid', gap: 10 }}>
@@ -1672,21 +1738,21 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
           <>
             <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
               <Btn variant="gold" onClick={() => setQuickMode(true)} style={{ flex: 1 }}>
-                <ClipboardList size={18} /> Umumiy retsept yozish
+                <ClipboardList size={18} /> {t('Umumiy retsept yozish', 'Написать общий рецепт')}
               </Btn>
               <Btn variant="ghost" onClick={() => setEditing('new')} style={{ flex: 1 }}>
-                <Plus size={18} /> Bitta dori
+                <Plus size={18} /> {t('Bitta dori', 'Одно лекарство')}
               </Btn>
             </div>
             <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
               {templates.length > 0 && (
                 <Btn variant="quiet" onClick={() => setTplMode('pick')} style={{ flex: 1, fontSize: 14 }}>
-                  <Files size={16} /> Shablondan
+                  <Files size={16} /> {t('Shablondan', 'Из шаблона')}
                 </Btn>
               )}
               {(rx.medicines || []).length > 0 && (
                 <Btn variant="quiet" onClick={() => { setTplTitle(''); setTplMode('save'); }} style={{ flex: 1, fontSize: 14 }}>
-                  <Files size={16} /> Shablon saqlash
+                  <Files size={16} /> {t('Shablon saqlash', 'Сохранить шаблон')}
                 </Btn>
               )}
             </div>
@@ -1697,20 +1763,20 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
 
             {tplMode === 'save' && (
               <Card style={{ marginTop: 10, border: `1.5px solid ${C.gold}`, background: '#FFFDF7' }}>
-                <div style={{ fontFamily: SERIF, fontSize: 17, color: C.tealDeep, fontWeight: 600, marginBottom: 4 }}>Shablon sifatida saqlash</div>
+                <div style={{ fontFamily: SERIF, fontSize: 17, color: C.tealDeep, fontWeight: 600, marginBottom: 4 }}>{t('Shablon sifatida saqlash', 'Сохранить как шаблон')}</div>
                 <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 10 }}>
-                  Joriy <b>{(rx.medicines || []).length} ta</b> dori shablonga saqlanadi (bemorga bog'lanmagan holda).
+                  {t(`Joriy ${(rx.medicines || []).length} ta dori shablonga saqlanadi (bemorga bog'lanmagan holda).`, `Текущие ${(rx.medicines || []).length} лек. будут сохранены в шаблон (без привязки к пациенту).`)}
                 </div>
                 <input
                   style={inputStyle}
                   value={tplTitle}
                   onChange={(e) => setTplTitle(e.target.value)}
-                  placeholder="Shablon nomi (masalan: Gipertoniya standart)"
+                  placeholder={t('Shablon nomi (masalan: Gipertoniya standart)', 'Название шаблона (например: Гипертония стандарт)')}
                   onKeyDown={(e) => e.key === 'Enter' && saveAsTemplate()}
                 />
                 <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
-                  <Btn variant="ghost" onClick={() => { setTplMode(null); setTplTitle(''); }} style={{ flex: 1 }}>Bekor qilish</Btn>
-                  <Btn variant="gold" onClick={saveAsTemplate} style={{ flex: 1 }}>Saqlash</Btn>
+                  <Btn variant="ghost" onClick={() => { setTplMode(null); setTplTitle(''); }} style={{ flex: 1 }}>{t('Bekor qilish', 'Отмена')}</Btn>
+                  <Btn variant="gold" onClick={saveAsTemplate} style={{ flex: 1 }}>{t('Saqlash', 'Сохранить')}</Btn>
                 </div>
               </Card>
             )}
@@ -1718,7 +1784,7 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
         )}
 
         <Btn variant="ghost" full onClick={deletePatient} style={{ marginTop: 24, color: C.red, border: '1.5px solid #E7C6C1' }}>
-          <Trash2 size={16} /> Bemorni o'chirish
+          <Trash2 size={16} /> {t("Bemorni o'chirish", 'Удалить пациента')}
         </Btn>
       </div>
     </div>
@@ -1727,30 +1793,31 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
 
 /* Shablon tanlash — retseptga qo'shish yoki o'chirish */
 function TemplatePicker({ templates, onApply, onDelete, onClose }) {
+  const t = useT();
   return (
     <Card style={{ marginTop: 10, border: `1px solid ${C.teal}` }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-        <div style={{ fontFamily: SERIF, fontSize: 17, color: C.tealDeep, fontWeight: 600 }}>Shablon tanlang</div>
+        <div style={{ fontFamily: SERIF, fontSize: 17, color: C.tealDeep, fontWeight: 600 }}>{t('Shablon tanlang', 'Выберите шаблон')}</div>
         <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.inkSoft }}>
           <X size={20} />
         </button>
       </div>
       <div style={{ display: 'grid', gap: 8 }}>
-        {templates.map((t) => (
-          <div key={t.id} style={{ border: `1px solid ${C.line}`, borderRadius: 12, padding: 12 }}>
+        {templates.map((tpl) => (
+          <div key={tpl.id} style={{ border: `1px solid ${C.line}`, borderRadius: 12, padding: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: SANS, fontSize: 15.5, fontWeight: 700, color: C.ink }}>{t.title}</div>
+                <div style={{ fontFamily: SANS, fontSize: 15.5, fontWeight: 700, color: C.ink }}>{tpl.title}</div>
                 <div style={{ fontFamily: SANS, fontSize: 12.5, color: C.inkSoft, marginTop: 2 }}>
-                  {(t.medicines || []).map((m) => m.name).join(', ') || 'Bo\'sh'}
+                  {(tpl.medicines || []).map((m) => m.name).join(', ') || t("Bo'sh", 'Пусто')}
                 </div>
               </div>
-              <button onClick={() => onDelete(t.id)} title="Shablonni o'chirish" style={{ ...iconBtn, color: C.red }}>
+              <button onClick={() => onDelete(tpl.id)} title={t("Shablonni o'chirish", 'Удалить шаблон')} style={{ ...iconBtn, color: C.red }}>
                 <Trash2 size={15} />
               </button>
             </div>
-            <Btn variant="sage" full onClick={() => onApply(t)} style={{ marginTop: 10, padding: '10px', fontSize: 14 }}>
-              <Plus size={15} /> Retseptga qo'shish ({(t.medicines || []).length} dori)
+            <Btn variant="sage" full onClick={() => onApply(tpl)} style={{ marginTop: 10, padding: '10px', fontSize: 14 }}>
+              <Plus size={15} /> {t('Retseptga qo\'shish', 'Добавить в рецепт')} ({(tpl.medicines || []).length} {t('dori', 'лек.')})
             </Btn>
           </div>
         ))}
@@ -1769,6 +1836,7 @@ function StatBox({ label, value, color }) {
 }
 
 function MedCard({ med, onEdit, onDelete }) {
+  const t = useT();
   const end = medEndDate(med);
   const needsSetup = !med.dosage.trim() || !(med.times || []).length;
   return (
@@ -1781,21 +1849,21 @@ function MedCard({ med, onEdit, onDelete }) {
           </div>
           {needsSetup ? (
             <div style={{ fontFamily: SANS, fontSize: 13, color: '#7A5A12', marginTop: 4, fontWeight: 600 }}>
-              Doza va qabul vaqti hali belgilanmagan
+              {t('Doza va qabul vaqti hali belgilanmagan', 'Доза и время приёма ещё не назначены')}
             </div>
           ) : (
             <>
               <div style={{ fontFamily: SANS, fontSize: 13.5, color: C.inkSoft, marginTop: 4 }}>{med.dosage}</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-                {(med.times || []).map((t) => (
-                  <span key={t} style={{ fontFamily: SANS, fontSize: 13, fontWeight: 600, color: C.teal, background: '#E9F0F1', padding: '4px 9px', borderRadius: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <Clock size={13} /> {t}
+                {(med.times || []).map((tm) => (
+                  <span key={tm} style={{ fontFamily: SANS, fontSize: 13, fontWeight: 600, color: C.teal, background: '#E9F0F1', padding: '4px 9px', borderRadius: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <Clock size={13} /> {tm}
                   </span>
                 ))}
               </div>
               <div style={{ fontFamily: SANS, fontSize: 12.5, color: C.inkSoft, marginTop: 8 }}>
-                {med.durationDays ? `${med.durationDays} kun` : 'Doimiy'} · boshlangan: {med.startDate}
-                {end && ` · tugaydi: ${end}`}
+                {med.durationDays ? `${med.durationDays} ${t('kun', 'дн.')}` : t('Doimiy', 'Постоянно')} · {t('boshlangan', 'начато')}: {med.startDate}
+                {end && ` · ${t('tugaydi', 'заканчивается')}: ${end}`}
               </div>
               {med.instructions && (
                 <div style={{ fontFamily: SANS, fontSize: 13, color: C.ink, marginTop: 6, fontStyle: 'italic' }}>“{med.instructions}”</div>
@@ -1804,7 +1872,7 @@ function MedCard({ med, onEdit, onDelete }) {
           )}
           {needsSetup && (
             <Btn variant="gold" onClick={onEdit} style={{ marginTop: 10, padding: '10px 14px', fontSize: 14 }}>
-              <Clock size={15} /> Doza va vaqtni belgilash
+              <Clock size={15} /> {t('Doza va vaqtni belgilash', 'Указать дозу и время')}
             </Btn>
           )}
         </div>
@@ -1824,6 +1892,7 @@ const iconBtn = {
 
 /* Dori qo'shish/tahrirlash formasi */
 function MedForm({ initial, onCancel, onSave }) {
+  const t = useT();
   const [name, setName] = useState(initial?.name || '');
   const [dosage, setDosage] = useState(initial?.dosage || '');
   const [times, setTimes] = useState(initial?.times?.length ? initial.times : ['08:00']);
@@ -1837,12 +1906,12 @@ function MedForm({ initial, onCancel, onSave }) {
   const removeTime = (i) => setTimes((ts) => (ts.length > 1 ? ts.filter((_, j) => j !== i) : ts));
 
   const save = () => {
-    if (!name.trim()) return setErr('Dori nomini kiriting.');
-    if (!dosage.trim()) return setErr('Dozani kiriting (masalan: 1 tabletka).');
+    if (!name.trim()) return setErr(t('Dori nomini kiriting.', 'Введите название лекарства.'));
+    if (!dosage.trim()) return setErr(t('Dozani kiriting (masalan: 1 tabletka).', 'Введите дозу (например: 1 таблетка).'));
     const cleanTimes = Array.from(new Set(times.filter(Boolean))).sort();
-    if (cleanTimes.length === 0) return setErr('Kamida bitta qabul vaqtini qo\'shing.');
+    if (cleanTimes.length === 0) return setErr(t('Kamida bitta qabul vaqtini qo\'shing.', 'Добавьте хотя бы одно время приёма.'));
     if (durationDays && (isNaN(Number(durationDays)) || Number(durationDays) < 1))
-      return setErr('Davomiylik butun kun bo\'lishi kerak yoki bo\'sh qoldiring (doimiy).');
+      return setErr(t('Davomiylik butun kun bo\'lishi kerak yoki bo\'sh qoldiring (doimiy).', 'Длительность должна быть целым числом дней или оставьте пустым (постоянно).'));
     onSave({
       id: initial?.id || uid(),
       name: name.trim(),
@@ -1857,53 +1926,53 @@ function MedForm({ initial, onCancel, onSave }) {
   return (
     <Card style={{ marginTop: 12, border: `1.5px solid ${C.gold}`, background: '#FFFDF7' }}>
       <div style={{ fontFamily: SERIF, fontSize: 18, color: C.tealDeep, fontWeight: 600, marginBottom: 12 }}>
-        {initial ? 'Dorini tahrirlash' : 'Yangi dori'}
+        {initial ? t('Dorini tahrirlash', 'Редактировать лекарство') : t('Yangi dori', 'Новое лекарство')}
       </div>
       {err && <Banner type="error" icon={<AlertTriangle size={18} />} onClose={() => setErr(null)}>{err}</Banner>}
 
-      <Field label="Dori nomi">
+      <Field label={t('Dori nomi', 'Название лекарства')}>
         <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder="Masalan: Enalapril" />
       </Field>
-      <Field label="Dozasi">
-        <input style={inputStyle} value={dosage} onChange={(e) => setDosage(e.target.value)} placeholder="Masalan: 10 mg, 1 tabletka" />
+      <Field label={t('Dozasi', 'Доза')}>
+        <input style={inputStyle} value={dosage} onChange={(e) => setDosage(e.target.value)} placeholder={t('Masalan: 10 mg, 1 tabletka', 'Например: 10 мг, 1 таблетка')} />
       </Field>
 
-      <Field label="Qabul vaqtlari" hint="Kuniga bir necha marta bo'lishi mumkin">
+      <Field label={t('Qabul vaqtlari', 'Время приёма')} hint={t("Kuniga bir necha marta bo'lishi mumkin", 'Может быть несколько раз в день')}>
         <div style={{ display: 'grid', gap: 8 }}>
-          {times.map((t, i) => (
+          {times.map((tm, i) => (
             <div key={i} style={{ display: 'flex', gap: 8 }}>
-              <input type="time" style={{ ...inputStyle, flex: 1 }} value={t} onChange={(e) => setTime(i, e.target.value)} />
+              <input type="time" style={{ ...inputStyle, flex: 1 }} value={tm} onChange={(e) => setTime(i, e.target.value)} />
               <button onClick={() => removeTime(i)} disabled={times.length <= 1} style={{ ...iconBtn, width: 46, opacity: times.length <= 1 ? 0.4 : 1 }}>
                 <Trash2 size={16} />
               </button>
             </div>
           ))}
           <Btn variant="quiet" onClick={addTime} style={{ padding: '10px 12px', fontSize: 14 }}>
-            <Plus size={15} /> Vaqt qo'shish
+            <Plus size={15} /> {t("Vaqt qo'shish", 'Добавить время')}
           </Btn>
         </div>
       </Field>
 
       <div style={{ display: 'flex', gap: 10 }}>
         <div style={{ flex: 1 }}>
-          <Field label="Boshlanish sanasi">
+          <Field label={t('Boshlanish sanasi', 'Дата начала')}>
             <input type="date" style={inputStyle} value={startDate} onChange={(e) => setStartDate(e.target.value)} />
           </Field>
         </div>
         <div style={{ flex: 1 }}>
-          <Field label="Necha kun" hint="Bo'sh = doimiy">
-            <input style={inputStyle} value={durationDays} onChange={(e) => setDurationDays(e.target.value.replace(/[^0-9]/g, ''))} placeholder="Doimiy" inputMode="numeric" />
+          <Field label={t('Necha kun', 'Сколько дней')} hint={t("Bo'sh = doimiy", 'Пусто = постоянно')}>
+            <input style={inputStyle} value={durationDays} onChange={(e) => setDurationDays(e.target.value.replace(/[^0-9]/g, ''))} placeholder={t('Doimiy', 'Постоянно')} inputMode="numeric" />
           </Field>
         </div>
       </div>
 
-      <Field label="Qo'shimcha ko'rsatma" hint="Ixtiyoriy">
-        <input style={inputStyle} value={instructions} onChange={(e) => setInstructions(e.target.value)} placeholder="Masalan: ovqatdan keyin, suv bilan" />
+      <Field label={t("Qo'shimcha ko'rsatma", 'Дополнительные указания')} hint={t('Ixtiyoriy', 'Необязательно')}>
+        <input style={inputStyle} value={instructions} onChange={(e) => setInstructions(e.target.value)} placeholder={t('Masalan: ovqatdan keyin, suv bilan', 'Например: после еды, запивая водой')} />
       </Field>
 
       <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-        <Btn variant="ghost" onClick={onCancel} style={{ flex: 1 }}>Bekor qilish</Btn>
-        <Btn variant="gold" onClick={save} style={{ flex: 1 }}>Saqlash</Btn>
+        <Btn variant="ghost" onClick={onCancel} style={{ flex: 1 }}>{t('Bekor qilish', 'Отмена')}</Btn>
+        <Btn variant="gold" onClick={save} style={{ flex: 1 }}>{t('Saqlash', 'Сохранить')}</Btn>
       </div>
     </Card>
   );
@@ -1913,6 +1982,7 @@ function MedForm({ initial, onCancel, onSave }) {
    vaqtini har biri uchun keyinroq alohida belgilaydi (MedCard'dagi
    "Belgilash" tugmasi orqali). */
 function QuickRxForm({ onCancel, onSave }) {
+  const t = useT();
   const [names, setNames] = useState(['']);
   const [err, setErr] = useState(null);
 
@@ -1922,15 +1992,18 @@ function QuickRxForm({ onCancel, onSave }) {
 
   const save = () => {
     const clean = names.map((n) => n.trim()).filter(Boolean);
-    if (!clean.length) return setErr('Kamida bitta dori nomini kiriting.');
+    if (!clean.length) return setErr(t('Kamida bitta dori nomini kiriting.', 'Введите хотя бы одно название лекарства.'));
     onSave(clean);
   };
 
   return (
     <Card style={{ marginTop: 12, border: `1.5px solid ${C.gold}`, background: '#FFFDF7' }}>
-      <div style={{ fontFamily: SERIF, fontSize: 18, color: C.tealDeep, fontWeight: 600, marginBottom: 4 }}>Umumiy retsept</div>
+      <div style={{ fontFamily: SERIF, fontSize: 18, color: C.tealDeep, fontWeight: 600, marginBottom: 4 }}>{t('Umumiy retsept', 'Общий рецепт')}</div>
       <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 12, lineHeight: 1.5 }}>
-        Avval faqat dori nomlarini yozing. Doza va qabul vaqtini har biri uchun keyinroq alohida belgilaysiz.
+        {t(
+          'Avval faqat dori nomlarini yozing. Doza va qabul vaqtini har biri uchun keyinroq alohida belgilaysiz.',
+          'Сначала напишите только названия лекарств. Дозу и время приёма вы укажете позже для каждого отдельно.'
+        )}
       </div>
       {err && <Banner type="error" icon={<AlertTriangle size={18} />} onClose={() => setErr(null)}>{err}</Banner>}
 
@@ -1951,12 +2024,12 @@ function QuickRxForm({ onCancel, onSave }) {
         ))}
       </div>
       <Btn variant="quiet" onClick={addRow} style={{ padding: '10px 12px', fontSize: 14 }}>
-        <Plus size={15} /> Yana dori
+        <Plus size={15} /> {t('Yana dori', 'Ещё лекарство')}
       </Btn>
 
       <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-        <Btn variant="ghost" onClick={onCancel} style={{ flex: 1 }}>Bekor qilish</Btn>
-        <Btn variant="gold" onClick={save} style={{ flex: 1 }}>Saqlash</Btn>
+        <Btn variant="ghost" onClick={onCancel} style={{ flex: 1 }}>{t('Bekor qilish', 'Отмена')}</Btn>
+        <Btn variant="gold" onClick={save} style={{ flex: 1 }}>{t('Saqlash', 'Сохранить')}</Btn>
       </div>
     </Card>
   );
@@ -1968,6 +2041,7 @@ function QuickRxForm({ onCancel, onSave }) {
    emas, chunki maqsad tez tekshiruv (dorixonachi navbatda kutayotgan mijoz bilan).
    ========================================================================= */
 function PharmacyApp({ onBack, onError }) {
+  const t = useT();
   const [code, setCode] = useState('');
   const [checking, setChecking] = useState(false);
   const [err, setErr] = useState(null);
@@ -1976,14 +2050,14 @@ function PharmacyApp({ onBack, onError }) {
 
   const check = async () => {
     const c = code.trim();
-    if (!/^\d{6}$/.test(c)) return setErr('Kod 6 xonali raqam bo\'lishi kerak.');
+    if (!/^\d{6}$/.test(c)) return setErr(t('Kod 6 xonali raqam bo\'lishi kerak.', 'Код должен быть 6-значным числом.'));
     setChecking(true);
     setErr(null);
     setResult(null);
     try {
       const patient = await store.get(`patient:${c}`, true);
       if (!patient) {
-        setErr('Bunday kod topilmadi. Bemordan kodni qaytadan so\'rang.');
+        setErr(t('Bunday kod topilmadi. Bemordan kodni qaytadan so\'rang.', 'Такой код не найден. Уточните код у пациента.'));
         setChecking(false);
         return;
       }
@@ -1992,7 +2066,7 @@ function PharmacyApp({ onBack, onError }) {
       const activeMeds = (rx.medicines || []).filter((m) => medActiveOn(m, today));
       setResult({ patient, activeMeds });
     } catch (e) {
-      onError("Tekshirib bo'lmadi. Internet aloqasini tekshiring.");
+      onError(t("Tekshirib bo'lmadi. Internet aloqasini tekshiring.", 'Не удалось проверить. Проверьте интернет-соединение.'));
     } finally {
       setChecking(false);
     }
@@ -2006,17 +2080,20 @@ function PharmacyApp({ onBack, onError }) {
 
   return (
     <div>
-      <TopBar title="Dorixona tekshiruvi" subtitle="Retsept haqiqiyligini tekshirish" onBack={onBack} />
+      <TopBar title={t('Dorixona tekshiruvi', 'Проверка в аптеке')} subtitle={t('Retsept haqiqiyligini tekshirish', 'Проверка подлинности рецепта')} onBack={onBack} />
       <div style={{ padding: 16 }}>
         {!result ? (
           <>
             <Banner type="info" icon={<Info size={18} />}>
-              Bemorning 6 xonali kodini kiriting — unga qaysi dorilar shifokor tomonidan tayinlanganini ko'rasiz.
+              {t(
+                "Bemorning 6 xonali kodini kiriting — unga qaysi dorilar shifokor tomonidan tayinlanganini ko'rasiz.",
+                'Введите 6-значный код пациента — вы увидите, какие лекарства назначены врачом.'
+              )}
             </Banner>
 
             {err && <Banner type="error" icon={<AlertTriangle size={18} />} onClose={() => setErr(null)}>{err}</Banner>}
 
-            <Field label="Bemor kodi">
+            <Field label={t('Bemor kodi', 'Код пациента')}>
               <input
                 style={{ ...inputStyle, fontFamily: SERIF, fontSize: 26, textAlign: 'center', letterSpacing: 8, fontWeight: 700, color: C.tealDeep }}
                 value={code}
@@ -2027,41 +2104,41 @@ function PharmacyApp({ onBack, onError }) {
               />
             </Field>
             <Btn variant="primary" full onClick={check} disabled={checking}>
-              <Search size={18} /> {checking ? 'Tekshirilmoqda…' : 'Tekshirish'}
+              <Search size={18} /> {checking ? t('Tekshirilmoqda…', 'Проверка…') : t('Tekshirish', 'Проверить')}
             </Btn>
           </>
         ) : (
           <>
             <Card style={{ marginBottom: 12 }}>
-              <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 2 }}>Bemor</div>
+              <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 2 }}>{t('Bemor', 'Пациент')}</div>
               <div style={{ fontFamily: SERIF, fontSize: 19, color: C.tealDeep, fontWeight: 600 }}>{result.patient.name}</div>
               {result.patient.doctorName ? (
                 <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginTop: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <IdCard size={14} /> Tayinlagan: {result.patient.doctorName} (litsenziya: {result.patient.doctorLicense || '—'})
+                  <IdCard size={14} /> {t('Tayinlagan', 'Назначил')}: {result.patient.doctorName} ({t('litsenziya', 'лицензия')}: {result.patient.doctorLicense || '—'})
                 </div>
               ) : (
-                <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginTop: 6 }}>Shifokor ma'lumoti yo'q (eski yozuv)</div>
+                <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginTop: 6 }}>{t("Shifokor ma'lumoti yo'q (eski yozuv)", 'Нет данных о враче (старая запись)')}</div>
               )}
             </Card>
 
-            <Field label="Dori nomini tekshirish" hint="Ixtiyoriy — aniq shu dorini qidiring">
-              <input style={inputStyle} value={drugQuery} onChange={(e) => setDrugQuery(e.target.value)} placeholder="Masalan: Amoksitsillin" />
+            <Field label={t('Dori nomini tekshirish', 'Проверить название лекарства')} hint={t('Ixtiyoriy — aniq shu dorini qidiring', 'Необязательно — найдите конкретное лекарство')}>
+              <input style={inputStyle} value={drugQuery} onChange={(e) => setDrugQuery(e.target.value)} placeholder={t('Masalan: Amoksitsillin', 'Например: Амоксициллин')} />
             </Field>
             {drugQuery.trim() && (
               drugMatch ? (
                 <Banner type="success" icon={<BadgeCheck size={18} />}>
-                  <b>Ha</b> — "{drugMatch.name}" ushbu bemorga shifokor tomonidan tayinlangan ({drugMatch.dosage}).
+                  <b>{t('Ha', 'Да')}</b> — "{drugMatch.name}" {t('ushbu bemorga shifokor tomonidan tayinlangan', 'назначено этому пациенту врачом')} ({drugMatch.dosage}).
                 </Banner>
               ) : (
                 <Banner type="error" icon={<XCircle size={18} />}>
-                  <b>Yo'q</b> — "{drugQuery}" ushbu bemorning faol retseptida topilmadi.
+                  <b>{t("Yo'q", 'Нет')}</b> — "{drugQuery}" {t('ushbu bemorning faol retseptida topilmadi.', 'не найдено в активном рецепте этого пациента.')}
                 </Banner>
               )
             )}
 
-            <SectionTitle icon={<ClipboardList size={18} color={C.teal} />}>Hozir faol dorilar ({result.activeMeds.length})</SectionTitle>
+            <SectionTitle icon={<ClipboardList size={18} color={C.teal} />}>{t('Hozir faol dorilar', 'Сейчас активные лекарства')} ({result.activeMeds.length})</SectionTitle>
             {result.activeMeds.length === 0 ? (
-              <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 22 }}>Bu bemorga hozir faol dori tayinlanmagan.</Card>
+              <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 22 }}>{t('Bu bemorga hozir faol dori tayinlanmagan.', 'У этого пациента сейчас нет активных лекарств.')}</Card>
             ) : (
               <div style={{ display: 'grid', gap: 10 }}>
                 {result.activeMeds.map((m) => {
@@ -2071,7 +2148,7 @@ function PharmacyApp({ onBack, onError }) {
                       <div style={{ fontFamily: SANS, fontSize: 16.5, fontWeight: 700, color: C.ink }}>{m.name}</div>
                       <div style={{ fontFamily: SANS, fontSize: 13.5, color: C.inkSoft, marginTop: 2 }}>{m.dosage}</div>
                       <div style={{ fontFamily: SANS, fontSize: 12.5, color: C.inkSoft, marginTop: 6 }}>
-                        {m.durationDays ? `${m.durationDays} kun` : 'Doimiy'} · boshlangan: {m.startDate}{end && ` · tugaydi: ${end}`}
+                        {m.durationDays ? `${m.durationDays} ${t('kun', 'дн.')}` : t('Doimiy', 'Постоянно')} · {t('boshlangan', 'начато')}: {m.startDate}{end && ` · ${t('tugaydi', 'заканчивается')}: ${end}`}
                       </div>
                     </Card>
                   );
@@ -2080,7 +2157,7 @@ function PharmacyApp({ onBack, onError }) {
             )}
 
             <Btn variant="ghost" full onClick={reset} style={{ marginTop: 16 }}>
-              <Search size={16} /> Boshqa bemorni tekshirish
+              <Search size={16} /> {t('Boshqa bemorni tekshirish', 'Проверить другого пациента')}
             </Btn>
           </>
         )}
@@ -2093,25 +2170,26 @@ function PharmacyApp({ onBack, onError }) {
    BEMOR — kirish
    ========================================================================= */
 function PatientLogin({ onLogin, onBack, onError }) {
+  const t = useT();
   const [code, setCode] = useState('');
   const [checking, setChecking] = useState(false);
   const [err, setErr] = useState(null);
 
   const submit = async () => {
     const c = code.trim();
-    if (!/^\d{6}$/.test(c)) return setErr('Kod 6 xonali raqam bo\'lishi kerak.');
+    if (!/^\d{6}$/.test(c)) return setErr(t('Kod 6 xonali raqam bo\'lishi kerak.', 'Код должен быть 6-значным числом.'));
     setChecking(true);
     setErr(null);
     try {
       const p = await store.get(`patient:${c}`, true);
       if (!p) {
-        setErr('Bunday kod topilmadi. Shifokoringizdan qaytadan so\'rang.');
+        setErr(t('Bunday kod topilmadi. Shifokoringizdan qaytadan so\'rang.', 'Такой код не найден. Уточните код у врача.'));
         setChecking(false);
         return;
       }
       onLogin(c);
     } catch (e) {
-      onError("Kodni tekshirib bo'lmadi. Internet aloqasini tekshiring.");
+      onError(t("Kodni tekshirib bo'lmadi. Internet aloqasini tekshiring.", 'Не удалось проверить код. Проверьте интернет-соединение.'));
       setChecking(false);
     }
   };
@@ -2125,9 +2203,9 @@ function PatientLogin({ onLogin, onBack, onError }) {
       <div style={{ width: 60, height: 60, borderRadius: 16, background: '#FBF1D6', color: '#7A5A12', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
         <User size={30} />
       </div>
-      <h1 style={{ fontFamily: SERIF, fontSize: 28, color: C.tealDeep, margin: '0 0 6px', fontWeight: 600 }}>Xush kelibsiz</h1>
+      <h1 style={{ fontFamily: SERIF, fontSize: 28, color: C.tealDeep, margin: '0 0 6px', fontWeight: 600 }}>{t('Xush kelibsiz', 'Добро пожаловать')}</h1>
       <p style={{ fontFamily: SANS, fontSize: 15, color: C.inkSoft, margin: '0 0 24px', lineHeight: 1.5 }}>
-        Shifokoringiz bergan 6 xonali kodni kiriting.
+        {t('Shifokoringiz bergan 6 xonali kodni kiriting.', 'Введите 6-значный код, полученный от врача.')}
       </p>
 
       {err && <Banner type="error" icon={<AlertTriangle size={18} />} onClose={() => setErr(null)}>{err}</Banner>}
@@ -2141,7 +2219,7 @@ function PatientLogin({ onLogin, onBack, onError }) {
         onKeyDown={(e) => e.key === 'Enter' && submit()}
       />
       <Btn variant="gold" full onClick={submit} disabled={checking} style={{ marginTop: 16 }}>
-        {checking ? 'Tekshirilmoqda…' : 'Kirish'}
+        {checking ? t('Tekshirilmoqda…', 'Проверка…') : t('Kirish', 'Войти')}
       </Btn>
     </div>
   );
@@ -2151,6 +2229,8 @@ function PatientLogin({ onLogin, onBack, onError }) {
    BEMOR — asosiy ekran
    ========================================================================= */
 function PatientApp({ code, onLogout, onError }) {
+  const t = useT();
+  const lang = useContext(LangContext);
   const [patient, setPatient] = useState(null);
   const [rx, setRx] = useState({ medicines: [] });
   const [log, setLog] = useState([]);
@@ -2176,11 +2256,11 @@ function PatientApp({ code, onLogout, onError }) {
       setRx(r);
       setLog(l);
     } catch (e) {
-      onError("Ma'lumotlaringizni yuklab bo'lmadi. Aloqani tekshiring.");
+      onError(t("Ma'lumotlaringizni yuklab bo'lmadi. Aloqani tekshiring.", 'Не удалось загрузить данные. Проверьте соединение.'));
     } finally {
       setLoading(false);
     }
-  }, [code, day, onError]);
+  }, [code, day, onError, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -2190,13 +2270,13 @@ function PatientApp({ code, onLogout, onError }) {
       const key = payload?.new?.key || payload?.old?.key;
       if (!key) return;
       if (key === `patient:${code}` || key === `rx:${code}` || key === `log:${code}:${day}`) {
-        if (key === `rx:${code}`) setLiveMsg('Shifokor retseptingizni yangiladi');
-        else if (key === `patient:${code}`) setLiveMsg("Ma'lumotingiz yangilandi");
+        if (key === `rx:${code}`) setLiveMsg(t('Shifokor retseptingizni yangiladi', 'Врач обновил ваш рецепт'));
+        else if (key === `patient:${code}`) setLiveMsg(t("Ma'lumotingiz yangilandi", 'Ваши данные обновлены'));
         load();
       }
     });
     return off;
-  }, [code, day, load]);
+  }, [code, day, load, t]);
 
   // Live xabarni avtomatik yashirish
   useEffect(() => {
@@ -2283,7 +2363,7 @@ function PatientApp({ code, onLogout, onError }) {
         fired = true;
         if (notifPerm === 'granted') {
           try {
-            new Notification('Vaqtida — dori vaqti', { body: `${d.med.name} · ${d.med.dosage} (${d.time})`, tag });
+            new Notification(t('Vaqtida — dori vaqti', 'Vaqtida — время приёма'), { body: `${d.med.name} · ${d.med.dosage} (${d.time})`, tag });
           } catch (e) {}
         }
       }
@@ -2303,7 +2383,7 @@ function PatientApp({ code, onLogout, onError }) {
       await store.set(`log:${code}:${day}`, next, true);
     } catch (e) {
       setLog(log); // qaytarish
-      onError("Belgilashni saqlab bo'lmadi. Qaytadan urinib ko'ring.");
+      onError(t("Belgilashni saqlab bo'lmadi. Qaytadan urinib ko'ring.", 'Не удалось сохранить отметку. Попробуйте ещё раз.'));
     }
   };
 
@@ -2315,12 +2395,12 @@ function PatientApp({ code, onLogout, onError }) {
       await store.set(`log:${code}:${day}`, next, true);
     } catch (e) {
       setLog(log);
-      onError("O'zgartirishni saqlab bo'lmadi.");
+      onError(t("O'zgartirishni saqlab bo'lmadi.", 'Не удалось сохранить изменение.'));
     }
   };
 
   const enableNotif = async () => {
-    if (typeof Notification === 'undefined') return onError('Bu brauzer bildirishnomalarni qo\'llab-quvvatlamaydi.');
+    if (typeof Notification === 'undefined') return onError(t('Bu brauzer bildirishnomalarni qo\'llab-quvvatlamaydi.', 'Этот браузер не поддерживает уведомления.'));
     try {
       const p = await Notification.requestPermission();
       setNotifPerm(p);
@@ -2338,7 +2418,7 @@ function PatientApp({ code, onLogout, onError }) {
         }
       }
     } catch (e) {
-      onError('Bildirishnoma ruxsatini olishda muammo.');
+      onError(t('Bildirishnoma ruxsatini olishda muammo.', 'Проблема при получении разрешения на уведомления.'));
     }
   };
 
@@ -2347,29 +2427,29 @@ function PatientApp({ code, onLogout, onError }) {
     .map((m) => ({ m, end: medEndDate(m) }))
     .filter((x) => x.end && (x.end === day || x.end === addDays(day, 1)));
 
-  if (loading) return <div style={{ padding: 30, textAlign: 'center', color: C.inkSoft }}>Yuklanmoqda…</div>;
+  if (loading) return <div style={{ padding: 30, textAlign: 'center', color: C.inkSoft }}>{t('Yuklanmoqda…', 'Загрузка…')}</div>;
   if (!patient)
     return (
       <div>
-        <TopBar title="Topilmadi" onBack={onLogout} />
+        <TopBar title={t('Topilmadi', 'Не найдено')} onBack={onLogout} />
         <div style={{ padding: 16 }}>
-          <Banner type="error" icon={<AlertTriangle size={18} />}>Bu kodga bemor topilmadi. Shifokoringizga murojaat qiling.</Banner>
-          <Btn variant="ghost" full onClick={onLogout}>Boshqa kod kiritish</Btn>
+          <Banner type="error" icon={<AlertTriangle size={18} />}>{t('Bu kodga bemor topilmadi. Shifokoringizga murojaat qiling.', 'Пациент с этим кодом не найден. Обратитесь к врачу.')}</Banner>
+          <Btn variant="ghost" full onClick={onLogout}>{t('Boshqa kod kiritish', 'Ввести другой код')}</Btn>
         </div>
       </div>
     );
 
   const takenCount = doses.filter((d) => d.status === 'taken').length;
-  const niceDate = uzDate(now);
+  const niceDate = localeDate(now, lang);
 
   return (
     <div>
       <TopBar
-        title={`Salom, ${patient.name.split(' ')[0] || patient.name}`}
+        title={`${t('Salom', 'Здравствуйте')}, ${patient.name.split(' ')[0] || patient.name}`}
         subtitle={niceDate}
         right={
           <Btn variant="quiet" onClick={onLogout} style={{ padding: '10px 12px', fontSize: 14 }}>
-            <LogOut size={16} /> Chiqish
+            <LogOut size={16} /> {t('Chiqish', 'Выйти')}
           </Btn>
         }
       />
@@ -2385,7 +2465,7 @@ function PatientApp({ code, onLogout, onError }) {
         {/* Eslatma banneri (due doza) */}
         {dueDoses.length > 0 && !dismissedReminder && (
           <div style={{ animation: 'none' }}>
-            <Banner type="warn" icon={<Bell size={18} />} title="Dori qabul qilish vaqti!" onClose={() => setDismissedReminder(true)}>
+            <Banner type="warn" icon={<Bell size={18} />} title={t('Dori qabul qilish vaqti!', 'Время принять лекарство!')} onClose={() => setDismissedReminder(true)}>
               {dueDoses.map((d) => (
                 <div key={d.key} style={{ marginTop: 2 }}>• <b>{d.med.name}</b> — {d.med.dosage} ({d.time})</div>
               ))}
@@ -2395,10 +2475,10 @@ function PatientApp({ code, onLogout, onError }) {
 
         {/* Kurs tugash eslatmasi */}
         {endingSoon.length > 0 && (
-          <Banner type="info" icon={<CalendarClock size={18} />} title="Kurs tugayapti">
+          <Banner type="info" icon={<CalendarClock size={18} />} title={t('Kurs tugayapti', 'Курс заканчивается')}>
             {endingSoon.map(({ m, end }) => (
               <div key={m.id}>
-                <b>{m.name}</b> kursi {end === day ? 'bugun' : 'ertaga'} tugaydi. Davom ettirish kerakmi — shifokoringizdan so'rang.
+                <b>{m.name}</b> {t(`kursi ${end === day ? 'bugun' : 'ertaga'} tugaydi. Davom ettirish kerakmi — shifokoringizdan so'rang.`, `курс заканчивается ${end === day ? 'сегодня' : 'завтра'}. Нужно ли продолжать — уточните у врача.`)}
               </div>
             ))}
           </Banner>
@@ -2406,37 +2486,41 @@ function PatientApp({ code, onLogout, onError }) {
 
         {/* Tashxis */}
         <Card style={{ background: C.teal, border: 'none', color: C.paper, marginBottom: 4 }}>
-          <div style={{ fontFamily: SANS, fontSize: 13, opacity: 0.8 }}>Tashxisingiz</div>
+          <div style={{ fontFamily: SANS, fontSize: 13, opacity: 0.8 }}>{t('Tashxisingiz', 'Ваш диагноз')}</div>
           <div style={{ fontFamily: SERIF, fontSize: 20, fontWeight: 600, color: C.gold, marginTop: 2 }}>{patient.diagnosis}</div>
           {patient.doctorName && (
             <div style={{ fontFamily: SANS, fontSize: 12.5, opacity: 0.85, marginTop: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
-              <IdCard size={13} /> Tayinlagan: {patient.doctorName}{patient.doctorLicense ? ` (litsenziya: ${patient.doctorLicense})` : ''}
+              <IdCard size={13} /> {t('Tayinlagan', 'Назначил')}: {patient.doctorName}{patient.doctorLicense ? ` (${t('litsenziya', 'лицензия')}: ${patient.doctorLicense})` : ''}
             </div>
           )}
         </Card>
 
         {/* Kun aylanasi */}
-        <SectionTitle icon={<Clock size={18} color={C.teal} />}>Bugungi kun aylanasi</SectionTitle>
+        <SectionTitle icon={<Clock size={18} color={C.teal} />}>{t('Bugungi kun aylanasi', 'Круг дня сегодня')}</SectionTitle>
         <Card style={{ padding: '18px 10px' }}>
           {doses.length === 0 ? (
             <div style={{ textAlign: 'center', color: C.inkSoft, padding: 20 }}>
-              {hasUnscheduled ? "Shifokoringiz dori yozgan, ammo qabul vaqtlari hali belgilanmagan." : "Bugun uchun tayinlangan dori yo'q."}
+              {hasUnscheduled
+                ? t("Shifokoringiz dori yozgan, ammo qabul vaqtlari hali belgilanmagan.", 'Врач назначил лекарства, но время приёма ещё не указано.')
+                : t("Bugun uchun tayinlangan dori yo'q.", 'На сегодня лекарств не назначено.')}
             </div>
           ) : (
             <>
               <DayArc doses={doses} now={now} />
               <div style={{ textAlign: 'center', fontFamily: SANS, fontSize: 13.5, color: C.inkSoft, marginTop: 8 }}>
-                Bugun {takenCount}/{doses.length} doza qabul qilindi
+                {t(`Bugun ${takenCount}/${doses.length} doza qabul qilindi`, `Сегодня принято ${takenCount}/${doses.length} доз`)}
               </div>
             </>
           )}
         </Card>
 
         {/* Dori jadvali (read-only, faqat belgilash mumkin) */}
-        <SectionTitle icon={<Pill size={18} color={C.teal} />}>Bugungi dorilar</SectionTitle>
+        <SectionTitle icon={<Pill size={18} color={C.teal} />}>{t('Bugungi dorilar', 'Лекарства на сегодня')}</SectionTitle>
         {doses.length === 0 ? (
           <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 22 }}>
-            {hasUnscheduled ? "Shifokoringiz retsept yozgan, ammo qabul vaqtlari hali belgilanmagan. Tez orada belgilanadi." : "Hozircha faol dori yo'q. Bu — yaxshi belgi bo'lishi mumkin 🙂"}
+            {hasUnscheduled
+              ? t("Shifokoringiz retsept yozgan, ammo qabul vaqtlari hali belgilanmagan. Tez orada belgilanadi.", 'Врач выписал рецепт, но время приёма ещё не указано. Скоро будет назначено.')
+              : t("Hozircha faol dori yo'q. Bu — yaxshi belgi bo'lishi mumkin 🙂", 'Пока нет активных лекарств. Возможно, это хороший знак 🙂')}
           </Card>
         ) : (
           <div style={{ display: 'grid', gap: 10 }}>
@@ -2447,38 +2531,42 @@ function PatientApp({ code, onLogout, onError }) {
         )}
 
         {/* Haftalik tarix */}
-        <SectionTitle icon={<CalendarDays size={18} color={C.teal} />}>So'nggi 7 kun</SectionTitle>
+        <SectionTitle icon={<CalendarDays size={18} color={C.teal} />}>{t("So'nggi 7 kun", 'Последние 7 дней')}</SectionTitle>
         <WeeklyHistory code={code} refreshKey={log.join(',')} />
 
         {/* Bildirishnoma boshqaruvi */}
-        <SectionTitle icon={<Bell size={18} color={C.teal} />}>Eslatmalar</SectionTitle>
+        <SectionTitle icon={<Bell size={18} color={C.teal} />}>{t('Eslatmalar', 'Напоминания')}</SectionTitle>
 
         {installPrompt && (
           <Btn variant="gold" full onClick={doInstall} style={{ marginBottom: 10 }}>
-            <Download size={18} /> Ilovani telefonga o'rnatish
+            <Download size={18} /> {t("Ilovani telefonga o'rnatish", 'Установить приложение на телефон')}
           </Btn>
         )}
 
         {notifPerm === 'default' && (
           <Btn variant="primary" full onClick={enableNotif}>
-            <Bell size={18} /> Bildirishnomalarni yoqish
+            <Bell size={18} /> {t('Bildirishnomalarni yoqish', 'Включить уведомления')}
           </Btn>
         )}
         {notifPerm === 'granted' && (
           <Banner type="success" icon={<Check size={18} />}>
-            Bildirishnomalar yoqilgan. Dori vaqti kelganda ogohlantiramiz.
-            {pushOn && <div style={{ marginTop: 4 }}>Fon bildirishnomasiga <b>obuna bo'ldingiz</b>.</div>}
+            {t('Bildirishnomalar yoqilgan. Dori vaqti kelganda ogohlantiramiz.', 'Уведомления включены. Мы предупредим, когда придёт время лекарства.')}
+            {pushOn && <div style={{ marginTop: 4 }}>{t('Fon bildirishnomasiga', 'На фоновые уведомления')} <b>{t("obuna bo'ldingiz", 'вы подписались')}</b>.</div>}
           </Banner>
         )}
         {notifPerm === 'denied' && (
-          <Banner type="warn" icon={<BellOff size={18} />}>Bildirishnomalar bloklangan. Brauzer sozlamalaridan (qulf belgisi → ruxsatlar) yoqishingiz mumkin.</Banner>
+          <Banner type="warn" icon={<BellOff size={18} />}>{t('Bildirishnomalar bloklangan. Brauzer sozlamalaridan (qulf belgisi → ruxsatlar) yoqishingiz mumkin.', 'Уведомления заблокированы. Их можно включить в настройках браузера (значок замка → разрешения).')}</Banner>
         )}
         {notifPerm === 'unavailable' && (
-          <Banner type="warn" icon={<BellOff size={18} />}>Bu brauzer tizim bildirishnomalarini qo'llab-quvvatlamaydi. Ilova ichidagi banner va tovush baribir ishlaydi.</Banner>
+          <Banner type="warn" icon={<BellOff size={18} />}>{t("Bu brauzer tizim bildirishnomalarini qo'llab-quvvatlamaydi. Ilova ichidagi banner va tovush baribir ishlaydi.", 'Этот браузер не поддерживает системные уведомления. Баннер и звук в приложении всё равно будут работать.')}</Banner>
         )}
 
-        <Banner type="info" icon={<Info size={18} />} title="Muhim">
-          Hozircha eslatmalar <b>ilova ochiq turganda</b> ishlaydi. Fon bildirishnomasi (ilova yopiq bo'lsa ham) uchun asos tayyorlandi — u <b>server tomoni ulangач</b> to'liq ishga tushadi. iPhone'da ilovani avval <b>bosh ekranga qo'shish</b> kerak.
+        <Banner type="info" icon={<Info size={18} />} title={t('Muhim', 'Важно')}>
+          {lang === 'ru' ? (
+            <>Пока напоминания работают, только когда <b>приложение открыто</b>. Основа для фоновых уведомлений (даже если приложение закрыто) готова — <b>они полностью заработают после подключения сервера</b>. На iPhone сначала нужно <b>добавить приложение на главный экран</b>.</>
+          ) : (
+            <>Hozircha eslatmalar <b>ilova ochiq turganda</b> ishlaydi. Fon bildirishnomasi (ilova yopiq bo'lsa ham) uchun asos tayyorlandi — u <b>server tomoni ulangach</b> to'liq ishga tushadi. iPhone'da ilovani avval <b>bosh ekranga qo'shish</b> kerak.</>
+          )}
         </Banner>
       </div>
     </div>
@@ -2487,12 +2575,13 @@ function PatientApp({ code, onLogout, onError }) {
 
 /* Bitta doza kartasi */
 function DoseCard({ dose, onTake, onUndo }) {
+  const t = useT();
   const { med, time, status } = dose;
   const cfg = {
-    taken: { bg: '#EEF4EB', bd: C.sage, label: 'Qabul qilindi', fg: '#3E5637' },
-    due: { bg: '#FBF1D6', bd: C.gold, label: 'Hozir vaqti!', fg: '#7A5A12' },
-    upcoming: { bg: C.white, bd: C.line, label: 'Kutilmoqda', fg: C.inkSoft },
-    missed: { bg: '#F9E9E6', bd: C.red, label: "O'tkazib yuborilgan", fg: '#7E2F27' },
+    taken: { bg: '#EEF4EB', bd: C.sage, label: t('Qabul qilindi', 'Принято'), fg: '#3E5637' },
+    due: { bg: '#FBF1D6', bd: C.gold, label: t('Hozir vaqti!', 'Сейчас время!'), fg: '#7A5A12' },
+    upcoming: { bg: C.white, bd: C.line, label: t('Kutilmoqda', 'Ожидается'), fg: C.inkSoft },
+    missed: { bg: '#F9E9E6', bd: C.red, label: t("O'tkazib yuborilgan", 'Пропущено'), fg: '#7E2F27' },
   }[status];
 
   return (
@@ -2508,13 +2597,13 @@ function DoseCard({ dose, onTake, onUndo }) {
           {med.instructions && <div style={{ fontFamily: SANS, fontSize: 12.5, color: C.ink, marginTop: 3, fontStyle: 'italic' }}>{med.instructions}</div>}
         </div>
         {status === 'taken' ? (
-          <button onClick={onUndo} title="Bekor qilish" style={{ background: C.sage, border: 'none', borderRadius: 12, width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: C.white, flexShrink: 0 }}>
+          <button onClick={onUndo} title={t('Bekor qilish', 'Отменить')} style={{ background: C.sage, border: 'none', borderRadius: 12, width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: C.white, flexShrink: 0 }}>
             <Check size={26} />
           </button>
         ) : (
           <button
             onClick={onTake}
-            title="Qabul qilindi deb belgilash"
+            title={t('Qabul qilindi deb belgilash', 'Отметить как принято')}
             style={{ background: status === 'missed' ? C.white : C.teal, border: status === 'missed' ? `2px solid ${C.red}` : 'none', borderRadius: 12, width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: status === 'missed' ? C.red : C.paper, flexShrink: 0 }}
           >
             <Check size={26} />
