@@ -1043,7 +1043,13 @@ function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
         title={t('Shifokor paneli', 'Панель врача')}
         subtitle={doctorProfile ? `${doctorProfile.fullName} · ${t('Litsenziya', 'Лицензия')}: ${doctorProfile.licenseNumber}` : (email || t('Bemorlar va retseptlar', 'Пациенты и рецепты'))}
         right={
-          <Btn variant="quiet" onClick={onLogout} style={{ padding: '10px 12px', fontSize: 14 }}>
+          <Btn
+            variant="quiet"
+            onClick={() => {
+              if (window.confirm(t('Chiqishni xohlaysizmi?', 'Хотите выйти?'))) onLogout();
+            }}
+            style={{ padding: '10px 12px', fontSize: 14 }}
+          >
             <LogOut size={16} /> {t('Chiqish', 'Выйти')}
           </Btn>
         }
