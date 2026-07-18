@@ -63,6 +63,10 @@ const CODE_LEN = 8;
 const genCode = () => Array.from({ length: CODE_LEN }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
 const CODE_RE = new RegExp(`^[A-Z0-9]{${CODE_LEN}}$`);
 const cleanCodeInput = (v) => v.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, CODE_LEN);
+
+/* Telefon raqamlarini solishtirish uchun: faqat raqamlarni qoldirib,
+   oxirgi 9 tasini olamiz (+998 kodi bo'lsa ham, bo'lmasa ham mos keladi). */
+const normalizePhone = (p) => (p || '').replace(/\D/g, '').slice(-9);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const curYear = () => new Date().getFullYear();
 const validBirthYear = (y) => { const n = Number(y); return Number.isInteger(n) && n >= 1900 && n <= curYear(); };
@@ -1140,6 +1144,13 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
       onError(t("Ism va tashxisni to'ldiring.", 'Заполните имя и диагноз.'));
       return;
     }
+    if (normalizePhone(phone).length < 9) {
+      onError(t(
+        "Telefon raqamini kiriting — bemor kirishda kod bilan bir qatorda shu raqam ham so'raladi (xavfsizlik uchun).",
+        'Введите номер телефона — при входе он потребуется вместе с кодом (для безопасности).'
+      ));
+      return;
+    }
     if (birthYear && !validBirthYear(birthYear)) {
       onError(t(`Tug'ilgan yil 1900–${curYear()} oralig'ida bo'lsin (yoki bo'sh qoldiring).`, `Год рождения должен быть в диапазоне 1900–${curYear()} (или оставьте поле пустым).`));
       return;
@@ -1279,7 +1290,7 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
           </Field>
           <div style={{ display: 'flex', gap: 10 }}>
             <div style={{ flex: 1.4 }}>
-              <Field label={t('Telefon', 'Телефон')} hint={t('Ixtiyoriy', 'Необязательно')}>
+              <Field label={t('Telefon', 'Телефон')} hint={t('Kirishda kod bilan birga so\'raladi', 'Понадобится вместе с кодом при входе')}>
                 <input style={inputStyle} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+998 90 123 45 67" />
               </Field>
             </div>
@@ -2268,6 +2279,7 @@ function PharmacyApp({ onBack, onError }) {
 function PatientLogin({ onLogin, onBack, onError }) {
   const t = useT();
   const [code, setCode] = useState('');
+  const [phone, setPhone] = useState('');
   const [checking, setChecking] = useState(false);
   const [err, setErr] = useState(null);
 
@@ -2280,6 +2292,14 @@ function PatientLogin({ onLogin, onBack, onError }) {
       const p = await store.get(`patient:${c}`, true);
       if (!p) {
         setErr(t('Bunday kod topilmadi. Shifokoringizdan qaytadan so\'rang.', 'Такой код не найден. Уточните код у врача.'));
+        setChecking(false);
+        return;
+      }
+      // Bemorda telefon raqami qayd etilgan bo'lsa — qo'shimcha tekshiruv
+      // sifatida mos kelishi shart (kod bilan bir qatorda ikkinchi omil).
+      // Eski (telefonsiz) yozuvlar uchun bu tekshiruv o'tkazib yuboriladi.
+      if (p.phone && normalizePhone(phone) !== normalizePhone(p.phone)) {
+        setErr(t("Telefon raqami mos kelmadi. Shifokoringizga murojaat qiling.", 'Номер телефона не совпадает. Обратитесь к врачу.'));
         setChecking(false);
         return;
       }
@@ -2301,20 +2321,35 @@ function PatientLogin({ onLogin, onBack, onError }) {
       </div>
       <h1 style={{ fontFamily: SERIF, fontSize: 28, color: C.tealDeep, margin: '0 0 6px', fontWeight: 600 }}>{t('Xush kelibsiz', 'Добро пожаловать')}</h1>
       <p style={{ fontFamily: SANS, fontSize: 15, color: C.inkSoft, margin: '0 0 24px', lineHeight: 1.5 }}>
-        {t(`Shifokoringiz bergan ${CODE_LEN} belgili kodni kiriting.`, `Введите ${CODE_LEN}-значный код, полученный от врача.`)}
+        {t(`Shifokoringiz bergan telefon raqami va ${CODE_LEN} belgili kodni kiriting.`, `Введите номер телефона и ${CODE_LEN}-значный код, полученные от врача.`)}
       </p>
 
       {err && <Banner type="error" icon={<AlertTriangle size={18} />} onClose={() => setErr(null)}>{err}</Banner>}
 
-      <input
-        style={{ ...inputStyle, fontFamily: SERIF, fontSize: 28, textAlign: 'center', letterSpacing: 6, padding: '16px 14px', fontWeight: 700, color: C.tealDeep, textTransform: 'uppercase' }}
-        value={code}
-        onChange={(e) => setCode(cleanCodeInput(e.target.value))}
-        placeholder="XXXXXXXX"
-        autoCapitalize="characters"
-        onKeyDown={(e) => e.key === 'Enter' && submit()}
-      />
-      <Btn variant="gold" full onClick={submit} disabled={checking} style={{ marginTop: 16 }}>
+      <Field label={t('Telefon raqami', 'Номер телефона')}>
+        <div style={{ position: 'relative' }}>
+          <Phone size={18} style={{ position: 'absolute', left: 12, top: 14, color: C.inkSoft }} />
+          <input
+            style={{ ...inputStyle, paddingLeft: 40 }}
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="+998 90 123 45 67"
+          />
+        </div>
+      </Field>
+
+      <Field label={t('Bemor kodi', 'Код пациента')}>
+        <input
+          style={{ ...inputStyle, fontFamily: SERIF, fontSize: 28, textAlign: 'center', letterSpacing: 6, padding: '16px 14px', fontWeight: 700, color: C.tealDeep, textTransform: 'uppercase' }}
+          value={code}
+          onChange={(e) => setCode(cleanCodeInput(e.target.value))}
+          placeholder="XXXXXXXX"
+          autoCapitalize="characters"
+          onKeyDown={(e) => e.key === 'Enter' && submit()}
+        />
+      </Field>
+      <Btn variant="gold" full onClick={submit} disabled={checking} style={{ marginTop: 4 }}>
         {checking ? t('Tekshirilmoqda…', 'Проверка…') : t('Kirish', 'Войти')}
       </Btn>
     </div>
