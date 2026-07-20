@@ -1665,7 +1665,7 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
           medicinesCount: medicines.length,
         };
         await store.set(`audit:${code}`, [...auditList, entry].slice(-100), true);
-      } catch (e) { /* audit yozilmasa ham retsept saqlanadi — jim o'tkazamiz */ }
+      } catch (e) { console.warn('Audit yozib bo\'lmadi (retsept baribir saqlandi):', e); }
     } catch (e) {
       onError(t("Retseptni saqlab bo'lmadi.", 'Не удалось сохранить рецепт.'));
     }
