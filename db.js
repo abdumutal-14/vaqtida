@@ -6,10 +6,12 @@ import { createClient } from '@supabase/supabase-js';
    - shared: false → doim localStorage (qurilmaga xos, masalan "settings").
 
    Egalik (RLS):
-   - "patients:{uid}", "templates:{uid}", "doctor:{uid}" kalitlari shifokorga
-     xos → owner=uid (faqat o'zi o'qiydi/yozadi).
-   - Boshqa shared kalitlar (patient:, rx:, log:, audit:, push:) → owner=null
-     (bemorga/dorixonaga kod orqali ochiq, autentifikatsiyasiz o'qiladi).
+   - "patients:{uid}", "templates:{uid}", "doctor:{uid}", "push:doctor:{uid}"
+     kalitlari shifokorga xos → owner=uid (faqat o'zi yozadi — boshqa
+     shifokor yoki anon foydalanuvchi ustidan yozib yubora olmaydi).
+   - Boshqa shared kalitlar (patient:, rx:, log:, audit:, push:{code}) →
+     owner=null (bemorga/dorixonaga kod orqali ochiq, autentifikatsiyasiz
+     o'qiladi).
    ------------------------------------------------------------------------- */
 const URL = import.meta.env.VITE_SUPABASE_URL;
 const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -26,7 +28,7 @@ if (sb) {
 }
 
 /* Kalit shifokorga xosmi (owner=uid) yoki bemorga ochiqmi (owner=null)? */
-const OWNED_PREFIXES = ['patients:', 'templates:', 'doctor:'];
+const OWNED_PREFIXES = ['patients:', 'templates:', 'doctor:', 'push:doctor:'];
 const isOwned = (key) => OWNED_PREFIXES.some((p) => key.startsWith(p));
 
 export const store = {

@@ -1013,6 +1013,31 @@ function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
     return () => { cancelled = true; clearTimeout(timer); };
   }, [patients, tick]);
 
+  // Xavfli bemor haqida push-bildirishnoma: joriy obuna holatini tekshiramiz
+  const [notifPerm, setNotifPerm] = useState(typeof Notification !== 'undefined' ? Notification.permission : 'unavailable');
+  const [pushOn, setPushOn] = useState(false);
+  useEffect(() => {
+    getPushState().then(setPushOn).catch(() => {});
+  }, []);
+
+  const enableDoctorNotif = async () => {
+    if (typeof Notification === 'undefined') return onError(t('Bu brauzer bildirishnomalarni qo\'llab-quvvatlamaydi.', 'Этот браузер не поддерживает уведомления.'));
+    try {
+      const p = await Notification.requestPermission();
+      setNotifPerm(p);
+      if (p === 'granted' && pushSupported()) {
+        try {
+          await subscribeToPush(`doctor:${doctorId}`);
+          setPushOn(true);
+        } catch (e) {
+          setPushOn(false);
+        }
+      }
+    } catch (e) {
+      onError(t('Bildirishnoma ruxsatini olishda muammo.', 'Проблема при получении разрешения на уведомления.'));
+    }
+  };
+
   const filtered = patients.filter((p) => {
     if (onlyDanger && !(overall?.dangerCodes || []).includes(p.code)) return false;
     const q = search.trim().toLowerCase();
@@ -1060,6 +1085,16 @@ function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
       />
       <div style={{ padding: 16 }}>
         <DoctorAddPatient doctorId={doctorId} doctorProfile={doctorProfile} onAdded={loadPatients} onError={onError} />
+
+        {notifPerm === 'granted' && pushOn ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, fontFamily: SANS, fontSize: 12.5, color: C.inkSoft }}>
+            <Bell size={13} color={C.sage} /> {t('Xavfli bemorlar haqida bildirishnoma yoqilgan', 'Уведомления о пациентах группы риска включены')}
+          </div>
+        ) : notifPerm !== 'denied' && (
+          <Btn variant="quiet" full onClick={enableDoctorNotif} style={{ marginBottom: 4, fontSize: 14 }}>
+            <Bell size={16} /> {t('Xavfli bemor haqida bildirishnoma olish', 'Получать уведомления о пациентах группы риска')}
+          </Btn>
+        )}
 
         {patients.length > 0 && overall && (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 4 }}>

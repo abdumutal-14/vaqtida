@@ -49,3 +49,34 @@ export function dueDoses(rx, todayLog, pushedToday, localDate, localMinutes, win
   }
   return out;
 }
+
+/* Bitta dozaning holati — mijozdagi doseStatus() ning server-tomon nusxasi
+   (daqiqa aniqligida, soniya emas — bu maqsad uchun yetarli). */
+export function doseStatusSrv(ds, hhmm, taken, todayDate, nowMinutes) {
+  if (taken) return 'taken';
+  if (ds < todayDate) return 'missed';
+  if (ds > todayDate) return 'upcoming';
+  const diff = nowMinutes - timeToMin(hhmm);
+  if (diff < 0) return 'upcoming';
+  if (diff <= 60) return 'due';
+  return 'missed';
+}
+
+/* So'nggi 3 kunda (bugun, kecha, indinga) nechta doza o'tkazib yuborilgan —
+   shifokorga "diqqat talab qiladi" ogohlantirishi shu asosida yuboriladi. */
+export function missed3Count(rx, logsByDate, todayDate, nowMinutes) {
+  const meds = (rx && rx.medicines) || [];
+  const days = [todayDate, addDays(todayDate, -1), addDays(todayDate, -2)];
+  let missed = 0;
+  for (const d of days) {
+    const log = logsByDate[d] || [];
+    for (const m of meds) {
+      if (!medActiveOn(m, d)) continue;
+      for (const t of m.times || []) {
+        const taken = log.includes(doseKey(m.id, t));
+        if (doseStatusSrv(d, t, taken, todayDate, nowMinutes) === 'missed') missed++;
+      }
+    }
+  }
+  return missed;
+}
