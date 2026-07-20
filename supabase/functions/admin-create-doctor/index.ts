@@ -29,6 +29,66 @@ const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 // simulyatsiya qilinadi. Blokdan chiqarish uchun 'none' beriladi.
 const BLOCK_DURATION = '876000h'; // ~100 yil
 
+/* -------------------------------------------------------------------------
+   Qo'pol kuch (brute-force) himoyasi: "x-admin-secret" ni noto'g'ri kiritish
+   IP manzil bo'yicha hisoblanadi. Belgilangan muddat ichida ko'p marta
+   xato kiritilsa — o'sha IP vaqtincha bloklanadi. Muvaffaqiyatli kirishda
+   hisoblagich tozalanadi. Holat kv_store'da "adminfail:{ip}" kaliti bilan
+   saqlanadi (bu jadval faqat service-role orqali o'qiladi/yoziladi).
+   ------------------------------------------------------------------------- */
+const MAX_FAIL_ATTEMPTS = 5;
+const LOCKOUT_WINDOW_MS = 15 * 60 * 1000; // 15 daqiqa
+
+function clientIp(req: Request): string {
+  const fwd = req.headers.get('x-forwarded-for') || '';
+  const ip = fwd.split(',')[0].trim();
+  return ip || 'unknown';
+}
+
+async function kvGetRaw(key: string) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/kv_store?key=eq.${encodeURIComponent(key)}&select=value`, { headers: adminH });
+  const rows = await res.json().catch(() => []);
+  return rows?.[0]?.value ?? null;
+}
+
+async function kvSetRaw(key: string, value: unknown) {
+  await fetch(`${SUPABASE_URL}/rest/v1/kv_store`, {
+    method: 'POST',
+    headers: { ...adminH, Prefer: 'resolution=merge-duplicates' },
+    body: JSON.stringify({ key, value, owner: null }),
+  });
+}
+
+async function kvDeleteRaw(key: string) {
+  await fetch(`${SUPABASE_URL}/rest/v1/kv_store?key=eq.${encodeURIComponent(key)}`, { method: 'DELETE', headers: adminH });
+}
+
+async function checkLockout(ip: string): Promise<{ blocked: boolean; retryAfterMin?: number }> {
+  const rec = await kvGetRaw(`adminfail:${ip}`);
+  if (!rec) return { blocked: false };
+  const now = Date.now();
+  if (rec.count >= MAX_FAIL_ATTEMPTS && now - rec.firstAt < LOCKOUT_WINDOW_MS) {
+    const retryAfterMin = Math.max(1, Math.ceil((LOCKOUT_WINDOW_MS - (now - rec.firstAt)) / 60000));
+    return { blocked: true, retryAfterMin };
+  }
+  return { blocked: false };
+}
+
+async function recordFailure(ip: string) {
+  const key = `adminfail:${ip}`;
+  const rec = await kvGetRaw(key);
+  const now = Date.now();
+  if (!rec || now - rec.firstAt >= LOCKOUT_WINDOW_MS) {
+    await kvSetRaw(key, { count: 1, firstAt: now });
+  } else {
+    await kvSetRaw(key, { count: rec.count + 1, firstAt: rec.firstAt });
+  }
+}
+
+async function clearFailures(ip: string) {
+  await kvDeleteRaw(`adminfail:${ip}`);
+}
+
 async function createDoctor(body: any) {
   const email = String(body.email || '').trim().toLowerCase();
   const password = String(body.password || '');
@@ -140,9 +200,18 @@ async function setBlocked(body: any) {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+
+  const ip = clientIp(req);
+  const lockout = await checkLockout(ip);
+  if (lockout.blocked) {
+    return json({ error: `Juda ko'p noto'g'ri urinish. ${lockout.retryAfterMin} daqiqadan keyin qayta urinib ko'ring.` }, 429);
+  }
+
   if (!ADMIN_SECRET || req.headers.get('x-admin-secret') !== ADMIN_SECRET) {
+    await recordFailure(ip);
     return json({ error: "Admin kodi noto'g'ri." }, 403);
   }
+  await clearFailures(ip);
 
   let body: any;
   try {

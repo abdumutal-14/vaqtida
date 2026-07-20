@@ -3,7 +3,7 @@ import {
   Stethoscope, User, UserPlus, Pill, Bell, BellOff, Check, AlertTriangle,
   Trash2, Pencil, Plus, ArrowLeft, LogOut, Copy, X, ChevronRight, Clock,
   Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files, Lock, Mail, CalendarDays, Phone, Type, Download,
-  Store, Search, BadgeCheck, XCircle, IdCard, History, KeyRound, ShieldCheck, RefreshCw, Globe, WifiOff, Link2, QrCode, Ban,
+  Store, Search, BadgeCheck, XCircle, IdCard, History, KeyRound, ShieldCheck, RefreshCw, Globe, WifiOff, Link2, QrCode, Ban, HelpCircle,
 } from 'lucide-react';
 import { store, hasBackend, auth, adminCreateDoctor, adminListDoctors, adminResetDoctorPassword, adminSetDoctorBlocked, offlineQueue } from './db.js';
 import { pushSupported, subscribeToPush, getPushState } from './push.js';
@@ -1109,7 +1109,7 @@ function TopBar({ title, subtitle, onBack, right }) {
 function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
   const t = useT();
   const [patients, setPatients] = useState([]);
-  const [view, setView] = useState('list'); // list | patient
+  const [view, setView] = useState('list'); // list | patient | help
   const [selected, setSelected] = useState(null); // code
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0); // real-time qayta hisoblash uchun
@@ -1226,21 +1226,34 @@ function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
     );
   }
 
+  if (view === 'help') {
+    return <DoctorHelp onBack={() => setView('list')} />;
+  }
+
   return (
     <div>
       <TopBar
         title={t('Shifokor paneli', 'Панель врача')}
         subtitle={doctorProfile ? `${doctorProfile.fullName} · ${t('Litsenziya', 'Лицензия')}: ${doctorProfile.licenseNumber}` : (email || t('Bemorlar va retseptlar', 'Пациенты и рецепты'))}
         right={
-          <Btn
-            variant="quiet"
-            onClick={() => {
-              if (window.confirm(t('Chiqishni xohlaysizmi?', 'Хотите выйти?'))) onLogout();
-            }}
-            style={{ padding: '10px 12px', fontSize: 14 }}
-          >
-            <LogOut size={16} /> {t('Chiqish', 'Выйти')}
-          </Btn>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <Btn
+              variant="quiet"
+              onClick={() => setView('help')}
+              style={{ padding: '10px 12px', fontSize: 14 }}
+            >
+              <HelpCircle size={16} /> {t('Yordam', 'Помощь')}
+            </Btn>
+            <Btn
+              variant="quiet"
+              onClick={() => {
+                if (window.confirm(t('Chiqishni xohlaysizmi?', 'Хотите выйти?'))) onLogout();
+              }}
+              style={{ padding: '10px 12px', fontSize: 14 }}
+            >
+              <LogOut size={16} /> {t('Chiqish', 'Выйти')}
+            </Btn>
+          </div>
         }
       />
       <div style={{ padding: 16 }}>
@@ -1315,6 +1328,112 @@ function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
               ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* Shifokorlar uchun qisqa qo'llanma va ko'p so'raladigan savollar.
+   Ular texnik odam bo'lmasligi mumkin — shu sabab bosqichma-bosqich,
+   sodda tilda yozilgan (rasmiy hujjat emas, ichki yordam sahifasi). */
+function DoctorHelp({ onBack }) {
+  const t = useT();
+  const steps = [
+    {
+      title: t('1. Yangi bemor qo‘shish', '1. Добавление нового пациента'),
+      text: t(
+        "Bosh sahifada \"Yangi bemor\" tugmasini bosing, ism, tashxis va telefon raqamini kiriting. Sizga 8 belgili kod va QR-kod beriladi — shuni bemorga ayting yoki QR-ni skanerlashga bering. Bemor shu kod (va telefon raqami) bilan o'ziga kiradi.",
+        'На главной странице нажмите «Новый пациент», введите имя, диагноз и номер телефона. Вам будет выдан код из 8 символов и QR-код — сообщите его пациенту или дайте отсканировать QR. Пациент входит по этому коду (и номеру телефона).'
+      ),
+    },
+    {
+      title: t('2. Retsept yozish', '2. Назначение рецепта'),
+      text: t(
+        "Bemor sahifasida \"Umumiy retsept yozish\" orqali bir nechta dori nomini birdaniga kiriting, so'ng har biriga alohida doza miqdori va qabul qilish vaqtlarini belgilang.",
+        'На странице пациента через «Назначить рецепт» сразу впишите названия нескольких лекарств, затем для каждого укажите дозу и время приёма.'
+      ),
+    },
+    {
+      title: t('3. Bemor tomonidan kuzatuv', '3. Наблюдение со стороны пациента'),
+      text: t(
+        "Bemor kunlik dozalarni ko'radi va \"qabul qilindi\" deb belgilaydi. Siz bemor sahifasida uning qabul tarixini va bugungi holatini real vaqtda ko'rib turasiz.",
+        'Пациент видит ежедневные дозы и отмечает «принято». Вы видите историю приёма и текущее состояние на странице пациента в реальном времени.'
+      ),
+    },
+    {
+      title: t('4. Boshqa shifoxonada davolangan bemor', '4. Пациент, лечившийся в другой клинике'),
+      text: t(
+        "Agar bemorda Vaqtida'dan oldin kod bo'lsa (masalan, boshqa shifoxonada shifokor bergan bo'lsa), uni qaytadan qo'shmang — \"Mavjud bemorni ulash\" tugmasidan uning kodini kiritib o'z ro'yxatingizga ulang. Bemorning butun tarixi saqlanadi, ikkala shifokor ham ko'radi.",
+        'Если у пациента уже есть код Vaqtida (например, выдан в другой клинике), не добавляйте заново — через «Привязать существующего пациента» введите его код. Вся история пациента сохранится, оба врача её увидят.'
+      ),
+    },
+    {
+      title: t('5. Bemorni ro‘yxatdan olib tashlash', '5. Удаление пациента из своего списка'),
+      text: t(
+        "\"Ro'yxatimdan olib tashlash\" faqat SIZNING ro'yxatingizdan o'chiradi — bemorning ma'lumoti va boshqa shifokorlar bilan bog'lanishi saqlanib qoladi.",
+        '«Убрать из моего списка» удаляет только из ВАШЕГО списка — данные пациента и его связь с другими врачами сохраняются.'
+      ),
+    },
+    {
+      title: t('6. Tarix (audit)', '6. История (аудит)'),
+      text: t(
+        "Bemor sahifasida \"Tarix\" tugmasi orqali kim, qachon va nimani o'zgartirganini (retsept, doza va h.k.) ko'rasiz.",
+        'На странице пациента через кнопку «История» видно, кто, когда и что изменил (рецепт, дозу и т.д.).'
+      ),
+    },
+    {
+      title: t('7. Xavfli bemor bildirishnomasi', '7. Уведомление о пациенте группы риска'),
+      text: t(
+        "Bosh sahifadagi \"Xavfli bemor haqida bildirishnoma olish\" tugmasini yoqsang, bemor ketma-ket 3 marta dozani o'tkazib yuborsa, telefoningizga push-bildirishnoma keladi.",
+        'Включив на главной странице «Получать уведомления о пациентах группы риска», вы получите push-уведомление, если пациент подряд пропустит 3 дозы.'
+      ),
+    },
+  ];
+  const faqs = [
+    {
+      q: t('Parolimni unutdim, nima qilaman?', 'Я забыл пароль, что делать?'),
+      a: t('Administratorga murojaat qiling — u sizga yangi parol o‘rnatib beradi.', 'Обратитесь к администратору — он установит вам новый пароль.'),
+    },
+    {
+      q: t('Bemor kodini yo‘qotib qo‘ydim, qayta ko‘rish mumkinmi?', 'Я потерял код пациента, можно посмотреть заново?'),
+      a: t('Ha. Bemor sahifasida "QR-kod" tugmasini bosing — kod va QR qaytadan ko‘rsatiladi.', 'Да. На странице пациента нажмите «QR-код» — код и QR будут показаны снова.'),
+    },
+    {
+      q: t('Bemorni ro‘yxatimdan o‘chirsam, uning ma’lumoti butunlay yo‘qoladimi?', 'Если я удалю пациента из списка, его данные исчезнут совсем?'),
+      a: t('Yo‘q. Faqat sizning shaxsiy ro‘yxatingizdan olib tashlanadi. Agar bemorga boshqa shifokor ham ulangan bo‘lsa, umumiy tarix va retseptlar saqlanadi.', 'Нет. Удаляется только из вашего личного списка. Если пациент привязан к другому врачу, общая история и рецепты сохраняются.'),
+    },
+    {
+      q: t('Bemorga eslatma qanday boradi?', 'Как пациенту приходит напоминание?'),
+      a: t('Bemor ilovani telefoniga o‘rnatib, bildirishnomalarni yoqsa, dori vaqti kelganda avtomatik push-eslatma keladi — internet uzilgan bo‘lsa ham, keyinroq qabul belgisi saqlanib qoladi.', 'Если пациент установит приложение на телефон и включит уведомления, при наступлении времени приёма придёт автоматическое push-напоминание — даже при потере интернета отметка о приёме сохранится и отправится позже.'),
+    },
+    {
+      q: t('Ilova tilini o‘zgartirsam bo‘ladimi?', 'Можно ли изменить язык приложения?'),
+      a: t('Ha — pastki qismdagi til tugmasi ("O‘zbekcha / Русский") orqali istalgan vaqtda almashtirasiz.', 'Да — переключателем языка внизу («O‘zbekcha / Русский») можно переключить в любой момент.'),
+    },
+  ];
+  return (
+    <div>
+      <TopBar title={t('Yordam', 'Помощь')} subtitle={t("Qo'llanma va ko'p so'raladigan savollar", 'Руководство и частые вопросы')} onBack={onBack} />
+      <div style={{ padding: 16 }}>
+        <SectionTitle icon={<Info size={18} color={C.teal} />}>{t('Qanday ishlaydi', 'Как это работает')}</SectionTitle>
+        <div style={{ display: 'grid', gap: 10, marginBottom: 8 }}>
+          {steps.map((s, i) => (
+            <Card key={i}>
+              <div style={{ fontFamily: SANS, fontSize: 15, fontWeight: 700, color: C.tealDeep, marginBottom: 4 }}>{s.title}</div>
+              <div style={{ fontFamily: SANS, fontSize: 14, color: C.inkSoft, lineHeight: 1.5 }}>{s.text}</div>
+            </Card>
+          ))}
+        </div>
+
+        <SectionTitle icon={<HelpCircle size={18} color={C.teal} />}>{t("Ko'p so'raladigan savollar", 'Частые вопросы')}</SectionTitle>
+        <div style={{ display: 'grid', gap: 10 }}>
+          {faqs.map((f, i) => (
+            <Card key={i}>
+              <div style={{ fontFamily: SANS, fontSize: 15, fontWeight: 700, color: C.ink, marginBottom: 4 }}>{f.q}</div>
+              <div style={{ fontFamily: SANS, fontSize: 14, color: C.inkSoft, lineHeight: 1.5 }}>{f.a}</div>
+            </Card>
+          ))}
+        </div>
       </div>
     </div>
   );
