@@ -3,9 +3,9 @@ import {
   Stethoscope, User, UserPlus, Pill, Bell, BellOff, Check, AlertTriangle,
   Trash2, Pencil, Plus, ArrowLeft, LogOut, Copy, X, ChevronRight, Clock,
   Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files, Lock, Mail, CalendarDays, Phone, Type, Download,
-  Store, Search, BadgeCheck, XCircle, IdCard, History, KeyRound, ShieldCheck, RefreshCw, Globe, WifiOff, Link2, QrCode,
+  Store, Search, BadgeCheck, XCircle, IdCard, History, KeyRound, ShieldCheck, RefreshCw, Globe, WifiOff, Link2, QrCode, Ban,
 } from 'lucide-react';
-import { store, hasBackend, auth, adminCreateDoctor, offlineQueue } from './db.js';
+import { store, hasBackend, auth, adminCreateDoctor, adminListDoctors, adminResetDoctorPassword, adminSetDoctorBlocked, offlineQueue } from './db.js';
 import { pushSupported, subscribeToPush, getPushState } from './push.js';
 import QRCode from 'qrcode';
 
@@ -687,12 +687,65 @@ function AdminCreateDoctor({ onBack, onError }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [created, setCreated] = useState(null);
+  const [doctors, setDoctors] = useState(null);
+  const [listBusy, setListBusy] = useState(false);
+  const [rowBusyUid, setRowBusyUid] = useState(null);
+  const [resetResult, setResetResult] = useState(null);
 
-  const genPassword = () => {
+  const genPw = () => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
     let p = '';
     for (let i = 0; i < 10; i++) p += chars[Math.floor(Math.random() * chars.length)];
-    setPassword(p);
+    return p;
+  };
+  const genPassword = () => setPassword(genPw());
+
+  const loadDoctors = async () => {
+    if (!secret.trim()) return setErr(t('Admin kodini kiriting.', 'Введите код администратора.'));
+    setErr(null);
+    setListBusy(true);
+    try {
+      const list = await adminListDoctors(secret.trim());
+      sessionStorage.setItem('vaqtida_admin_secret', secret.trim());
+      setDoctors(list);
+    } catch (e) {
+      setErr(e.message || t("Ro'yxatni yuklab bo'lmadi.", 'Не удалось загрузить список.'));
+    } finally {
+      setListBusy(false);
+    }
+  };
+
+  const resetPasswordFor = async (doc) => {
+    setErr(null);
+    setResetResult(null);
+    setRowBusyUid(doc.uid);
+    try {
+      const newPassword = genPw();
+      await adminResetDoctorPassword(secret.trim(), doc.uid, newPassword);
+      setResetResult({ email: doc.email, password: newPassword });
+    } catch (e) {
+      setErr(e.message || t("Parolni tiklab bo'lmadi.", 'Не удалось сбросить пароль.'));
+    } finally {
+      setRowBusyUid(null);
+    }
+  };
+
+  const toggleBlocked = async (doc) => {
+    setErr(null);
+    const next = !doc.blocked;
+    const msg = next
+      ? t(`${doc.fullName || doc.email}ni bloklaysizmi? U tizimga kira olmay qoladi.`, `Заблокировать ${doc.fullName || doc.email}? Он не сможет войти в систему.`)
+      : t(`${doc.fullName || doc.email}ni blokdan chiqarasizmi?`, `Разблокировать ${doc.fullName || doc.email}?`);
+    if (!window.confirm(msg)) return;
+    setRowBusyUid(doc.uid);
+    try {
+      await adminSetDoctorBlocked(secret.trim(), doc.uid, next);
+      setDoctors((list) => list.map((d) => (d.uid === doc.uid ? { ...d, blocked: next } : d)));
+    } catch (e) {
+      setErr(e.message || t("Holatni o'zgartirib bo'lmadi.", 'Не удалось изменить статус.'));
+    } finally {
+      setRowBusyUid(null);
+    }
   };
 
   const submit = async () => {
@@ -815,6 +868,75 @@ function AdminCreateDoctor({ onBack, onError }) {
       <Btn variant="primary" full onClick={submit} disabled={busy} style={{ marginTop: 4 }}>
         {busy ? t('Kutilmoqda…', 'Подождите…') : t('Hisob yaratish', 'Создать аккаунт')}
       </Btn>
+
+      <div style={{ marginTop: 36, paddingTop: 24, borderTop: `1px solid ${C.line}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ fontFamily: SERIF, fontSize: 20, color: C.tealDeep, fontWeight: 600 }}>
+            {t('Shifokorlarni boshqarish', 'Управление врачами')}
+          </div>
+          <button onClick={loadDoctors} disabled={listBusy} title={t('Yuklash', 'Загрузить')} style={{ ...iconBtn, opacity: listBusy ? 0.5 : 1 }}>
+            <RefreshCw size={16} />
+          </button>
+        </div>
+
+        {resetResult && (
+          <Banner type="success" icon={<Check size={18} />} onClose={() => setResetResult(null)}>
+            <b>{t('Yangi parol:', 'Новый пароль:')}</b> {resetResult.email} — <b>{resetResult.password}</b>
+          </Banner>
+        )}
+
+        {doctors === null ? (
+          <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 20 }}>
+            {t("Ro'yxatni ko'rish uchun yuqoridagi admin kodini kiritib, yangilash tugmasini bosing.", 'Введите код администратора выше и нажмите кнопку обновления, чтобы увидеть список.')}
+          </Card>
+        ) : doctors.length === 0 ? (
+          <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 20 }}>{t("Hozircha shifokor yo'q.", 'Пока нет врачей.')}</Card>
+        ) : (
+          <div style={{ display: 'grid', gap: 10 }}>
+            {doctors.map((doc) => (
+              <Card key={doc.uid} style={doc.blocked ? { border: `1.5px solid ${C.red}`, background: '#FBF3F2' } : undefined}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontFamily: SANS, fontSize: 15.5, fontWeight: 700, color: C.ink }}>{doc.fullName || '—'}</div>
+                    <div style={{ fontFamily: SANS, fontSize: 12.5, color: C.inkSoft, marginTop: 2 }}>{doc.email}</div>
+                    {doc.licenseNumber && (
+                      <div style={{ fontFamily: SANS, fontSize: 12.5, color: C.inkSoft, marginTop: 2 }}>{t('Litsenziya', 'Лицензия')}: {doc.licenseNumber}</div>
+                    )}
+                    <span
+                      style={{
+                        display: 'inline-block', marginTop: 6, fontFamily: SANS, fontSize: 11.5, fontWeight: 700,
+                        padding: '3px 9px', borderRadius: 20,
+                        color: doc.blocked ? '#7E2F27' : '#3E5637',
+                        background: doc.blocked ? '#F7E2DF' : '#E7F0E3',
+                      }}
+                    >
+                      {doc.blocked ? t('Bloklangan', 'Заблокирован') : t('Faol', 'Активен')}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
+                    <button
+                      onClick={() => resetPasswordFor(doc)}
+                      disabled={rowBusyUid === doc.uid}
+                      title={t('Parolni tiklash', 'Сбросить пароль')}
+                      style={{ ...iconBtn, opacity: rowBusyUid === doc.uid ? 0.5 : 1 }}
+                    >
+                      <KeyRound size={16} />
+                    </button>
+                    <button
+                      onClick={() => toggleBlocked(doc)}
+                      disabled={rowBusyUid === doc.uid}
+                      title={doc.blocked ? t('Blokdan chiqarish', 'Разблокировать') : t('Bloklash', 'Заблокировать')}
+                      style={{ ...iconBtn, color: doc.blocked ? C.sage : C.red, opacity: rowBusyUid === doc.uid ? 0.5 : 1 }}
+                    >
+                      {doc.blocked ? <ShieldCheck size={16} /> : <Ban size={16} />}
+                    </button>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -841,6 +963,7 @@ function DoctorAuth({ onBack }) {
       const m = (e && e.message) || '';
       if (/Invalid login/i.test(m)) setErr(t("Email yoki parol noto'g'ri.", 'Неверный email или пароль.'));
       else if (/confirm/i.test(m)) setErr(t('Email tasdiqlanmagan. Pochtangizni tekshiring.', 'Email не подтверждён. Проверьте почту.'));
+      else if (/banned/i.test(m)) setErr(t('Hisobingiz bloklangan. Administratorga murojaat qiling.', 'Ваш аккаунт заблокирован. Обратитесь к администратору.'));
       else setErr(m || t('Kirishda xatolik yuz berdi.', 'Ошибка при входе.'));
     } finally {
       setBusy(false);

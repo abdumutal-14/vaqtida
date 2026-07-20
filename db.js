@@ -182,16 +182,33 @@ export const offlineQueue = {
   },
 };
 
-/* Faqat admin: litsenziya tekshirilgach shifokor hisobini yaratadi.
-   Server (Edge Function) "x-admin-secret" ni o'zi tekshiradi — mijozda
-   hech qanday maxfiy kalit saqlanmaydi. */
-export async function adminCreateDoctor(adminSecret, { email, password, fullName, licenseNumber }) {
+/* Faqat admin: shifokor hisoblarini boshqarish (yaratish, ro'yxat, parol
+   tiklash, bloklash). Server (Edge Function) "x-admin-secret" ni o'zi
+   tekshiradi — mijozda hech qanday maxfiy kalit saqlanmaydi. */
+async function adminCall(adminSecret, body) {
   const res = await fetch(`${URL}/functions/v1/admin-create-doctor`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-admin-secret': adminSecret },
-    body: JSON.stringify({ email, password, fullName, licenseNumber }),
+    body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error || "Hisob yaratib bo'lmadi.");
+  if (!res.ok) throw new Error(data?.error || "Amalni bajarib bo'lmadi.");
   return data;
+}
+
+export async function adminCreateDoctor(adminSecret, { email, password, fullName, licenseNumber }) {
+  return adminCall(adminSecret, { action: 'create', email, password, fullName, licenseNumber });
+}
+
+export async function adminListDoctors(adminSecret) {
+  const data = await adminCall(adminSecret, { action: 'list' });
+  return data.doctors || [];
+}
+
+export async function adminResetDoctorPassword(adminSecret, uid, newPassword) {
+  return adminCall(adminSecret, { action: 'reset-password', uid, newPassword });
+}
+
+export async function adminSetDoctorBlocked(adminSecret, uid, blocked) {
+  return adminCall(adminSecret, { action: 'set-blocked', uid, blocked });
 }
