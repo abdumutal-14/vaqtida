@@ -3,10 +3,11 @@ import {
   Stethoscope, User, UserPlus, Pill, Bell, BellOff, Check, AlertTriangle,
   Trash2, Pencil, Plus, ArrowLeft, LogOut, Copy, X, ChevronRight, Clock,
   Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files, Lock, Mail, CalendarDays, Phone, Type, Download,
-  Store, Search, BadgeCheck, XCircle, IdCard, History, KeyRound, ShieldCheck, RefreshCw, Globe, WifiOff, Link2,
+  Store, Search, BadgeCheck, XCircle, IdCard, History, KeyRound, ShieldCheck, RefreshCw, Globe, WifiOff, Link2, QrCode,
 } from 'lucide-react';
 import { store, hasBackend, auth, adminCreateDoctor, offlineQueue } from './db.js';
 import { pushSupported, subscribeToPush, getPushState } from './push.js';
+import QRCode from 'qrcode';
 
 /* =========================================================================
    "Vaqtida" — dori qabul qilishni nazorat qiluvchi mobil-veb ilova
@@ -63,6 +64,11 @@ const CODE_LEN = 8;
 const genCode = () => Array.from({ length: CODE_LEN }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
 const CODE_RE = new RegExp(`^[A-Z0-9]{${CODE_LEN}}$`);
 const cleanCodeInput = (v) => v.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, CODE_LEN);
+
+/* Bemor kirish sahifasiga to'g'ridan-to'g'ri (kod oldindan to'ldirilgan
+   holda) olib boradigan havola — QR-kod shu havolani kodlaydi. */
+const patientLoginUrl = (code) =>
+  `${window.location.origin}${window.location.pathname}?code=${code}`;
 
 /* Telefon raqamlarini solishtirish uchun: faqat raqamlarni qoldirib,
    oxirgi 9 tasini olamiz (+998 kodi bo'lsa ham, bo'lmasa ham mos keladi). */
@@ -186,6 +192,20 @@ function Card({ children, style, onClick }) {
       {children}
     </div>
   );
+}
+
+/* Berilgan matnni QR-kod rasmiga aylantiradi (masalan bemor kirish havolasi) */
+function QrCodeImg({ value, size = 160 }) {
+  const [src, setSrc] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    QRCode.toDataURL(value, { width: size, margin: 1, color: { dark: '#1B3038', light: '#FFFFFF' } })
+      .then((url) => { if (!cancelled) setSrc(url); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [value, size]);
+  if (!src) return <div style={{ width: size, height: size, background: C.paperSoft, borderRadius: 10 }} />;
+  return <img src={src} width={size} height={size} style={{ borderRadius: 10, display: 'block' }} alt="QR" />;
 }
 
 function SectionTitle({ children, icon }) {
@@ -360,6 +380,8 @@ export default function App() {
   const [bigFont, setBigFont] = useState(false);
   const [lang, setLang] = useState('uz');
   const isAdminRoute = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('admin') === '1';
+  const urlCodeRaw = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('code') : null;
+  const urlCode = urlCodeRaw && CODE_RE.test(urlCodeRaw.toUpperCase()) ? urlCodeRaw.toUpperCase() : null;
   const t = (uz, ru) => translate(lang, uz, ru);
 
   const reportError = useCallback((msg) => setGlobalError(msg), []);
@@ -519,6 +541,21 @@ export default function App() {
 
   if (isAdminRoute) {
     return shell(<AdminCreateDoctor onBack={() => { window.location.href = window.location.pathname; }} onError={reportError} />);
+  }
+
+  // QR-kod skanerlanganda kelgan havola (?code=XXXXXXXX) — kodni oldindan
+  // to'ldirilgan holda bemor kirish sahifasini ko'rsatamiz. Faqat hali
+  // hech qanday rol tanlanmagan yoki bemor kod kiritmagan bo'lsa ishlaydi —
+  // mavjud shifokor/dorixona sessiyasini bekor qilmaydi.
+  if (urlCode && (!settings.role || (settings.role === 'patient' && !settings.code))) {
+    return shell(
+      <PatientLogin
+        initialCode={urlCode}
+        onLogin={(code) => persistSettings({ role: 'patient', code })}
+        onBack={() => { window.history.replaceState({}, '', window.location.pathname); logout(); }}
+        onError={reportError}
+      />
+    );
   }
 
   if (!settings.role) return shell(<RoleSelect onPick={(role) => persistSettings({ role, code: null })} />);
@@ -1291,6 +1328,12 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
             <Copy size={16} /> {t('Nusxa', 'Копия')}
           </Btn>
         </div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, background: C.paper, borderRadius: 12, padding: 14, marginTop: 4 }}>
+          <QrCodeImg value={patientLoginUrl(newCode)} size={140} />
+          <div style={{ fontFamily: SANS, fontSize: 12, color: C.tealDeep, textAlign: 'center' }}>
+            {t("Bemor shu QR-kodni skanerlab, kodni qo'lda yozmasdan kirishi mumkin", 'Пациент может отсканировать этот QR-код и войти без ручного ввода')}
+          </div>
+        </div>
         <Btn variant="quiet" full onClick={() => setNewCode(null)} style={{ marginTop: 8 }}>
           {t('Yaxshi, yopish', 'Хорошо, закрыть')}
         </Btn>
@@ -1569,6 +1612,7 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
   const [showAudit, setShowAudit] = useState(false);
   const [audit, setAudit] = useState(null);
   const [quickMode, setQuickMode] = useState(false);
+  const [showQr, setShowQr] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -1766,10 +1810,23 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
                 <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 2 }}>{t('Tashxis', 'Диагноз')}</div>
                 <div style={{ fontFamily: SERIF, fontSize: 19, color: C.tealDeep, fontWeight: 600 }}>{patient.diagnosis}</div>
               </div>
-              <button onClick={() => { setEName(patient.name); setEDx(patient.diagnosis); setEPhone(patient.phone || ''); setEYear(patient.birthYear ? String(patient.birthYear) : ''); setEditInfo(true); }} title={t('Tahrirlash', 'Редактировать')} style={iconBtn}>
-                <Pencil size={16} />
-              </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <button onClick={() => setShowQr((v) => !v)} title={t('QR-kod', 'QR-код')} style={iconBtn}>
+                  <QrCode size={16} />
+                </button>
+                <button onClick={() => { setEName(patient.name); setEDx(patient.diagnosis); setEPhone(patient.phone || ''); setEYear(patient.birthYear ? String(patient.birthYear) : ''); setEditInfo(true); }} title={t('Tahrirlash', 'Редактировать')} style={iconBtn}>
+                  <Pencil size={16} />
+                </button>
+              </div>
             </div>
+            {showQr && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, background: C.paperSoft, borderRadius: 12, padding: 14, marginTop: 12 }}>
+                <QrCodeImg value={patientLoginUrl(patient.code)} size={140} />
+                <div style={{ fontFamily: SANS, fontSize: 12, color: C.inkSoft, textAlign: 'center' }}>
+                  {t("Bemor shu QR-kodni skanerlab kirishi mumkin", 'Пациент может отсканировать этот QR-код для входа')}
+                </div>
+              </div>
+            )}
           </Card>
         ) : (
           <Card style={{ marginBottom: 4, border: `1.5px solid ${C.gold}`, background: '#FFFDF7' }}>
@@ -2311,9 +2368,9 @@ function PharmacyApp({ onBack, onError }) {
 /* =========================================================================
    BEMOR — kirish
    ========================================================================= */
-function PatientLogin({ onLogin, onBack, onError }) {
+function PatientLogin({ onLogin, onBack, onError, initialCode }) {
   const t = useT();
-  const [code, setCode] = useState('');
+  const [code, setCode] = useState(initialCode || '');
   const [phone, setPhone] = useState('');
   const [checking, setChecking] = useState(false);
   const [err, setErr] = useState(null);
