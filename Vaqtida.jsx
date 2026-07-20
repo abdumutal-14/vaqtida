@@ -1375,6 +1375,11 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
       };
       await store.set(`patient:${code}`, rec, true);
       await store.set(`rx:${code}`, { medicines: [] }, true);
+      // Bemorga bog'langan HAMMA shifokorlar ro'yxati — keyinroq boshqa
+      // shifokor ulansa, shu yerga qo'shiladi (pastdagi submitLink'ga qarang).
+      await store.set(`doctors:${code}`, [{
+        doctorId, fullName: doctorProfile?.fullName || null, licenseNumber: doctorProfile?.licenseNumber || null, linkedAt: Date.now(),
+      }], true);
       await store.set(`patients:${doctorId}`, [...existing, rec], true);
       setNewCode(code);
       setName('');
@@ -1411,6 +1416,16 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
         return;
       }
       await store.set(`patients:${doctorId}`, [...existing, patient], true);
+      // Shu shifokorni ham bemorning "tayinlagan shifokorlar" ro'yxatiga
+      // qo'shamiz — bemor/dorixona endi ikkala shifokorni ham ko'radi.
+      try {
+        const doctorsList = (await store.get(`doctors:${c}`, true)) || [];
+        if (!doctorsList.some((d) => d.doctorId === doctorId)) {
+          await store.set(`doctors:${c}`, [...doctorsList, {
+            doctorId, fullName: doctorProfile?.fullName || null, licenseNumber: doctorProfile?.licenseNumber || null, linkedAt: Date.now(),
+          }], true);
+        }
+      } catch (e) { /* asosiy ulash muvaffaqiyatli bo'lgani muhim — jim o'tkazamiz */ }
       setLinkedName(patient.name);
       setLinkCode('');
       onAdded();
@@ -1736,16 +1751,19 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
   const [audit, setAudit] = useState(null);
   const [quickMode, setQuickMode] = useState(false);
   const [showQr, setShowQr] = useState(false);
+  const [otherDoctors, setOtherDoctors] = useState([]);
 
   const load = useCallback(async () => {
     try {
       const p = await store.get(`patient:${code}`, true);
       const r = (await store.get(`rx:${code}`, true)) || { medicines: [] };
       const t = (await store.get(`templates:${doctorId}`, true)) || [];
+      const doctorsList = (await store.get(`doctors:${code}`, true)) || [];
       setPatient(p);
       if (p) { setEName(p.name || ''); setEDx(p.diagnosis || ''); setEPhone(p.phone || ''); setEYear(p.birthYear ? String(p.birthYear) : ''); }
       setRx(r);
       setTemplates(t);
+      setOtherDoctors(doctorsList.filter((d) => d.doctorId !== doctorId));
       setStats(await computeStats(code));
     } catch (e) {
       onError(t("Bemor ma'lumotini yuklab bo'lmadi.", 'Не удалось загрузить данные пациента.'));
@@ -1761,7 +1779,7 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
     const off = store.subscribe((payload) => {
       const key = payload?.new?.key || payload?.old?.key;
       if (!key) return;
-      if (key === `patient:${code}` || key === `rx:${code}` || key.startsWith(`log:${code}:`)) load();
+      if (key === `patient:${code}` || key === `rx:${code}` || key === `doctors:${code}` || key.startsWith(`log:${code}:`)) load();
     });
     return off;
   }, [code, load]);
@@ -1892,6 +1910,11 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
     try {
       const list = (await store.get(`patients:${doctorId}`, true)) || [];
       await store.set(`patients:${doctorId}`, list.filter((p) => p.code !== code), true);
+      // Shu shifokorni "tayinlagan shifokorlar" ro'yxatidan ham olib tashlaymiz
+      try {
+        const doctorsList = (await store.get(`doctors:${code}`, true)) || [];
+        await store.set(`doctors:${code}`, doctorsList.filter((d) => d.doctorId !== doctorId), true);
+      } catch (e) { /* asosiy ro'yxatdan olib tashlash muvaffaqiyatli bo'lgani muhim */ }
       onDeletedPatient();
     } catch (e) {
       onError(t("Ro'yxatdan olib tashlab bo'lmadi.", 'Не удалось удалить из списка.'));
@@ -1932,6 +1955,15 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
                 </div>
                 <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 2 }}>{t('Tashxis', 'Диагноз')}</div>
                 <div style={{ fontFamily: SERIF, fontSize: 19, color: C.tealDeep, fontWeight: 600 }}>{patient.diagnosis}</div>
+                {otherDoctors.length > 0 && (
+                  <div style={{ fontFamily: SANS, fontSize: 12, color: C.inkSoft, marginTop: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <Users size={13} />
+                    {t(
+                      `Bu bemor boshqa shifokorga ham ulangan: ${otherDoctors.map((d) => d.fullName).filter(Boolean).join(', ')}`,
+                      `Этот пациент также привязан к другим врачам: ${otherDoctors.map((d) => d.fullName).filter(Boolean).join(', ')}`
+                    )}
+                  </div>
+                )}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <button onClick={() => setShowQr((v) => !v)} title={t('QR-kod', 'QR-код')} style={iconBtn}>
@@ -2386,7 +2418,11 @@ function PharmacyApp({ onBack, onError }) {
       const rx = (await store.get(`rx:${c}`, true)) || { medicines: [] };
       const today = todayStr();
       const activeMeds = (rx.medicines || []).filter((m) => medActiveOn(m, today));
-      setResult({ patient, activeMeds });
+      const doctorsList = await store.get(`doctors:${c}`, true);
+      const doctors = doctorsList && doctorsList.length
+        ? doctorsList
+        : (patient.doctorName ? [{ doctorId: patient.doctorId, fullName: patient.doctorName, licenseNumber: patient.doctorLicense }] : []);
+      setResult({ patient, activeMeds, doctors });
     } catch (e) {
       onError(t("Tekshirib bo'lmadi. Internet aloqasini tekshiring.", 'Не удалось проверить. Проверьте интернет-соединение.'));
     } finally {
@@ -2434,10 +2470,12 @@ function PharmacyApp({ onBack, onError }) {
             <Card style={{ marginBottom: 12 }}>
               <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 2 }}>{t('Bemor', 'Пациент')}</div>
               <div style={{ fontFamily: SERIF, fontSize: 19, color: C.tealDeep, fontWeight: 600 }}>{result.patient.name}</div>
-              {result.patient.doctorName ? (
-                <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginTop: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <IdCard size={14} /> {t('Tayinlagan', 'Назначил')}: {result.patient.doctorName} ({t('litsenziya', 'лицензия')}: {result.patient.doctorLicense || '—'})
-                </div>
+              {result.doctors.length > 0 ? (
+                result.doctors.map((d, i) => (
+                  <div key={d.doctorId || i} style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginTop: i === 0 ? 6 : 3, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <IdCard size={14} /> {t('Tayinlagan', 'Назначил')}: {d.fullName} ({t('litsenziya', 'лицензия')}: {d.licenseNumber || '—'})
+                  </div>
+                ))
               ) : (
                 <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginTop: 6 }}>{t("Shifokor ma'lumoti yo'q (eski yozuv)", 'Нет данных о враче (старая запись)')}</div>
               )}
@@ -2588,6 +2626,7 @@ function PatientApp({ code, onLogout, onError }) {
   const [pushOn, setPushOn] = useState(false);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [pendingSync, setPendingSync] = useState(() => offlineQueue.size() > 0);
+  const [doctors, setDoctors] = useState([]);
 
   const audioRef = useRef(null);
   const beepedRef = useRef(new Set()); // qaytariqni oldini olish uchun
@@ -2599,9 +2638,13 @@ function PatientApp({ code, onLogout, onError }) {
       const p = await store.get(`patient:${code}`, true);
       const r = (await store.get(`rx:${code}`, true)) || { medicines: [] };
       const l = (await store.get(`log:${code}:${day}`, true)) || [];
+      const d = await store.get(`doctors:${code}`, true);
       setPatient(p);
       setRx(r);
       setLog(l);
+      // Eski (bitta shifokorli) yozuvlar uchun orqaga qarab moslashuvchan:
+      // "doctors:{code}" hali yaratilmagan bo'lsa, patient.doctorName'dan foydalanamiz.
+      setDoctors(d && d.length ? d : (p?.doctorName ? [{ doctorId: p.doctorId, fullName: p.doctorName, licenseNumber: p.doctorLicense }] : []));
     } catch (e) {
       onError(t("Ma'lumotlaringizni yuklab bo'lmadi. Aloqani tekshiring.", 'Не удалось загрузить данные. Проверьте соединение.'));
     } finally {
@@ -2616,7 +2659,7 @@ function PatientApp({ code, onLogout, onError }) {
     const off = store.subscribe((payload) => {
       const key = payload?.new?.key || payload?.old?.key;
       if (!key) return;
-      if (key === `patient:${code}` || key === `rx:${code}` || key === `log:${code}:${day}`) {
+      if (key === `patient:${code}` || key === `rx:${code}` || key === `log:${code}:${day}` || key === `doctors:${code}`) {
         if (key === `rx:${code}`) setLiveMsg(t('Shifokor retseptingizni yangiladi', 'Врач обновил ваш рецепт'));
         else if (key === `patient:${code}`) setLiveMsg(t("Ma'lumotingiz yangilandi", 'Ваши данные обновлены'));
         load();
@@ -2863,9 +2906,13 @@ function PatientApp({ code, onLogout, onError }) {
         <Card style={{ background: C.teal, border: 'none', color: C.paper, marginBottom: 4 }}>
           <div style={{ fontFamily: SANS, fontSize: 13, opacity: 0.8 }}>{t('Tashxisingiz', 'Ваш диагноз')}</div>
           <div style={{ fontFamily: SERIF, fontSize: 20, fontWeight: 600, color: C.gold, marginTop: 2 }}>{patient.diagnosis}</div>
-          {patient.doctorName && (
-            <div style={{ fontFamily: SANS, fontSize: 12.5, opacity: 0.85, marginTop: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
-              <IdCard size={13} /> {t('Tayinlagan', 'Назначил')}: {patient.doctorName}{patient.doctorLicense ? ` (${t('litsenziya', 'лицензия')}: ${patient.doctorLicense})` : ''}
+          {doctors.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              {doctors.map((d, i) => (
+                <div key={d.doctorId || i} style={{ fontFamily: SANS, fontSize: 12.5, opacity: 0.85, display: 'flex', alignItems: 'center', gap: 5, marginTop: i > 0 ? 3 : 0 }}>
+                  <IdCard size={13} /> {t('Tayinlagan', 'Назначил')}: {d.fullName}{d.licenseNumber ? ` (${t('litsenziya', 'лицензия')}: ${d.licenseNumber})` : ''}
+                </div>
+              ))}
             </div>
           )}
         </Card>
