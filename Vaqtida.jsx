@@ -573,6 +573,18 @@ export default function App() {
         />
       );
     }
+    if (hasBackend && authUser && doctorProfile && !doctorProfile.consentAt) {
+      return shell(
+        <ConsentScreen
+          onError={reportError}
+          onAgree={async () => {
+            const updated = { ...doctorProfile, consentAt: Date.now() };
+            await store.set(`doctor:${authUser.id}`, updated, true);
+            setDoctorProfile(updated);
+          }}
+        />
+      );
+    }
     const doctorId = authUser?.id || 'local';
     return shell(
       <DoctorApp
@@ -593,6 +605,7 @@ export default function App() {
 /* ------------------------------ Rol tanlash ------------------------------ */
 function RoleSelect({ onPick }) {
   const t = useT();
+  const [legalDoc, setLegalDoc] = useState(null);
   return (
     <div style={{ padding: '56px 24px 40px' }}>
       <div style={{ textAlign: 'center', marginBottom: 40 }}>
@@ -669,6 +682,244 @@ function RoleSelect({ onPick }) {
           <><b>{t('Eslatma:', 'Примечание:')}</b> {t('Bu mahalliy demo — ma\'lumot faqat shu brauzerda saqlanadi va autentifikatsiyasiz ishlaydi.', 'Это локальная демо-версия — данные хранятся только в этом браузере и работают без авторизации.')}</>
         )}
       </Banner>
+
+      <div style={{ textAlign: 'center', marginTop: 22 }}>
+        <button onClick={() => setLegalDoc('privacy')} style={legalLinkStyle}>{t('Maxfiylik siyosati', 'Политика конфиденциальности')}</button>
+        <span style={{ color: C.inkSoft, margin: '0 6px' }}>·</span>
+        <button onClick={() => setLegalDoc('terms')} style={legalLinkStyle}>{t('Foydalanish shartlari', 'Условия использования')}</button>
+      </div>
+
+      {legalDoc && <LegalDocument doc={legalDoc} onSwitch={setLegalDoc} onBack={() => setLegalDoc(null)} overlay />}
+    </div>
+  );
+}
+const legalLinkStyle = {
+  background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+  fontFamily: SANS, fontSize: 12.5, color: C.inkSoft, textDecoration: 'underline',
+};
+
+/* Maxfiylik siyosati va Foydalanish shartlari matni — ikkalasi ham shu
+   komponentda, "tab" orqali almashtiriladi. `overlay` bo'lsa butun
+   ekranni bosib turuvchi qoplama sifatida (masalan RoleSelect ustida),
+   aks holda oddiy sahifa sifatida ko'rsatiladi. */
+function LegalDocument({ doc, onSwitch, onBack, overlay }) {
+  const t = useT();
+  const CONTACT_EMAIL = 'abdurakhimovabdumutal14@gmail.com';
+  const UPDATED = t("2026-yil 20-iyulda yangilangan", "Обновлено 20 июля 2026 г.");
+
+  const privacy = [
+    {
+      title: t('1. Qanday ma\'lumotlar yig\'iladi', '1. Какие данные собираются'),
+      text: t(
+        "Shifokor: F.I.Sh., email, litsenziya/diplom raqami. Bemor: ism, tashxis, telefon raqami, tug'ilgan yil (ixtiyoriy), dori nomlari va dozalari, qabul qilish tarixi. Dorixona alohida hisob yaratmaydi — faqat bemor kodi orqali retseptni ko'radi.",
+        'Врач: ФИО, email, номер лицензии/диплома. Пациент: имя, диагноз, номер телефона, год рождения (необязательно), названия и дозы лекарств, история приёма. Аптека отдельный аккаунт не создаёт — видит рецепт только по коду пациента.'
+      ),
+    },
+    {
+      title: t('2. Ma\'lumotlar nima uchun ishlatiladi', '2. Для чего используются данные'),
+      text: t(
+        "Dori qabul qilish vaqtida eslatma yuborish, shifokorga bemor holatini (qabul foizi, xavf darajasi) ko'rsatish, dorixonaga retseptni tasdiqlash uchun. Ma'lumotlar reklama yoki boshqa maqsadda ishlatilmaydi.",
+        'Для отправки напоминаний о приёме лекарств, показа врачу состояния пациента (процент приёма, уровень риска), подтверждения рецепта аптеке. Данные не используются в рекламных или иных целях.'
+      ),
+    },
+    {
+      title: t('3. Ma\'lumotlar qayerda saqlanadi', '3. Где хранятся данные'),
+      text: t(
+        "Ma'lumotlar bulutli infratuzilmada (Supabase, shifrlangan ulanish — HTTPS orqali) saqlanadi. Har bir shifokor faqat o'z bemorlarini ko'radi (baza darajasidagi ruxsat siyosati bilan cheklangan); bemor va dorixona faqat 8 belgili maxfiy kod orqali kiradi.",
+        'Данные хранятся в облачной инфраструктуре (Supabase, соединение зашифровано через HTTPS). Каждый врач видит только своих пациентов (ограничено политикой доступа на уровне базы данных); пациент и аптека входят только по секретному 8-значному коду.'
+      ),
+    },
+    {
+      title: t('4. Kim ma\'lumotlaringizni ko\'ra oladi', '4. Кто может видеть ваши данные'),
+      text: t(
+        "Bemorning ma'lumotlarini — unga ulangan shifokor(lar), kodni bilgan dorixona va (texnik xizmat ko'rsatish uchun, zarurat bo'lganda) administrator ko'radi. Ma'lumotlar uchinchi shaxslarga sotilmaydi yoki reklama maqsadida berilmaydi.",
+        'Данные пациента видят: привязанный(е) врач(и), аптека, знающая код, и (при необходимости технической поддержки) администратор. Данные не продаются и не передаются третьим лицам в рекламных целях.'
+      ),
+    },
+    {
+      title: t('5. Sizning huquqlaringiz', '5. Ваши права'),
+      text: t(
+        "Ma'lumotlaringizni ko'rish, tuzatish yoki o'chirishni so'rash huquqiga egasiz. Buning uchun shifokoringizga yoki quyidagi manzil orqali administratorga murojaat qiling.",
+        'Вы имеете право просматривать, исправлять или запросить удаление своих данных. Для этого обратитесь к своему врачу или к администратору по адресу ниже.'
+      ),
+    },
+    {
+      title: t('6. Voyaga yetmaganlar', '6. Несовершеннолетние'),
+      text: t(
+        "Agar bemor 18 yoshdan kichik bo'lsa, ma'lumotlarni kiritish va ilovadan foydalanishga ota-ona yoki qonuniy vasiy roziligi talab etiladi.",
+        'Если пациенту не исполнилось 18 лет, для ввода данных и использования приложения требуется согласие родителя или законного опекуна.'
+      ),
+    },
+    {
+      title: t('7. Bog\'lanish', '7. Контакты'),
+      text: `${t('Savol yoki so\'rovlar uchun', 'По вопросам и запросам')}: ${CONTACT_EMAIL}`,
+    },
+  ];
+
+  const terms = [
+    {
+      title: t('1. Xizmat tavsifi', '1. Описание сервиса'),
+      text: t(
+        "Vaqtida — dori qabul qilishni nazorat qilish va eslatib turishga yordam beruvchi ilova. Xizmat shifokor, bemor va dorixona o'rtasidagi muvofiqlashtirishni osonlashtiradi.",
+        'Vaqtida — приложение, помогающее контролировать приём лекарств и напоминать о нём. Сервис облегчает координацию между врачом, пациентом и аптекой.'
+      ),
+    },
+    {
+      title: t('2. MUHIM: tibbiy maslahat emas', '2. ВАЖНО: не является медицинской консультацией'),
+      text: t(
+        "Ilova shifokor tashxisi yoki maslahati o'rnini bosmaydi — u faqat shifokor tomonidan buyurilgan retseptni eslatib turadi. Favqulodda holatda darhol tez tibbiy yordamga (103) murojaat qiling.",
+        'Приложение не заменяет диагноз или консультацию врача — оно лишь напоминает о рецепте, назначенном врачом. В экстренной ситуации немедленно обратитесь в скорую помощь (103).'
+      ),
+    },
+    {
+      title: t('3. Foydalanuvchi majburiyatlari', '3. Обязанности пользователя'),
+      text: t(
+        "To'g'ri ma'lumot kiritish, hisob parolini/bemor kodini maxfiy saqlash va uchinchi shaxslarga bermaslik foydalanuvchining javobgarligidadir.",
+        'Ввод достоверных данных, сохранение пароля аккаунта/кода пациента в тайне и непередача их третьим лицам — ответственность пользователя.'
+      ),
+    },
+    {
+      title: t('4. Shifokorning javobgarligi', '4. Ответственность врача'),
+      text: t(
+        "Shifokor hisobini yaratishda taqdim etilgan litsenziya/diplom ma'lumotlari haqiqiy bo'lishi va yozilgan retseptlar uchun javobgarlik shifokor zimmasida qoladi.",
+        'Данные лицензии/диплома, предоставленные при создании аккаунта врача, должны быть достоверными; ответственность за назначенные рецепты остаётся за врачом.'
+      ),
+    },
+    {
+      title: t('5. Xizmat uzilishlari', '5. Перебои в работе сервиса'),
+      text: t(
+        "Ilova internet aloqasi yoki server ishlashiga bog'liq — texnik uzilishlar yuz berishi mumkin. Bunday holatlarda yuzaga kelishi mumkin bo'lgan bilvosita zarar uchun javobgarlik cheklangan; muhim tibbiy qarorlarni faqat ilovaga tayanib qabul qilmang.",
+        'Приложение зависит от интернет-соединения и работы сервера — возможны технические перебои. Ответственность за косвенный ущерб в таких случаях ограничена; не принимайте важные медицинские решения, полагаясь только на приложение.'
+      ),
+    },
+    {
+      title: t('6. Hisobni bloklash/bekor qilish', '6. Блокировка/удаление аккаунта'),
+      text: t(
+        "Qoidabuzarlik yoki noto'g'ri ma'lumot aniqlansa, administrator hisobni vaqtincha bloklashi yoki bekor qilishi mumkin.",
+        'При выявлении нарушений или недостоверных данных администратор может временно заблокировать или удалить аккаунт.'
+      ),
+    },
+    {
+      title: t('7. Amal qiluvchi qonunchilik', '7. Применимое законодательство'),
+      text: t(
+        "Ushbu shartlar O'zbekiston Respublikasi qonunchiligiga muvofiq talqin etiladi.",
+        'Настоящие условия толкуются в соответствии с законодательством Республики Узбекистан.'
+      ),
+    },
+    {
+      title: t('8. Bog\'lanish', '8. Контакты'),
+      text: `${t('Savol yoki so\'rovlar uchun', 'По вопросам и запросам')}: ${CONTACT_EMAIL}`,
+    },
+  ];
+
+  const sections = doc === 'terms' ? terms : privacy;
+
+  const body = (
+    <div style={{ padding: 16 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        <button
+          onClick={() => onSwitch && onSwitch('privacy')}
+          style={{ ...tabBtnStyle, ...(doc !== 'terms' ? tabBtnActive : {}) }}
+        >
+          {t('Maxfiylik siyosati', 'Конфиденциальность')}
+        </button>
+        <button
+          onClick={() => onSwitch && onSwitch('terms')}
+          style={{ ...tabBtnStyle, ...(doc === 'terms' ? tabBtnActive : {}) }}
+        >
+          {t('Foydalanish shartlari', 'Условия')}
+        </button>
+      </div>
+      <div style={{ fontFamily: SANS, fontSize: 12.5, color: C.inkSoft, marginBottom: 12 }}>{UPDATED}</div>
+      <div style={{ display: 'grid', gap: 10 }}>
+        {sections.map((s, i) => (
+          <Card key={i}>
+            <div style={{ fontFamily: SANS, fontSize: 15, fontWeight: 700, color: C.tealDeep, marginBottom: 4 }}>{s.title}</div>
+            <div style={{ fontFamily: SANS, fontSize: 14, color: C.inkSoft, lineHeight: 1.5 }}>{s.text}</div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+
+  if (overlay) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 80, background: C.paper, overflowY: 'auto' }}>
+        <TopBar title={doc === 'terms' ? t('Foydalanish shartlari', 'Условия использования') : t('Maxfiylik siyosati', 'Политика конфиденциальности')} onBack={onBack} />
+        {body}
+      </div>
+    );
+  }
+  return (
+    <div>
+      <TopBar title={doc === 'terms' ? t('Foydalanish shartlari', 'Условия использования') : t('Maxfiylik siyosati', 'Политика конфиденциальности')} onBack={onBack} />
+      {body}
+    </div>
+  );
+}
+const tabBtnStyle = {
+  flex: 1, padding: '9px 10px', borderRadius: 10, border: `1.5px solid ${C.line}`,
+  background: C.white, color: C.inkSoft, fontFamily: SANS, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+};
+const tabBtnActive = { background: C.teal, color: C.paper, border: `1.5px solid ${C.teal}` };
+
+/* Bir martalik majburiy rozilik ekrani — shifokor (profil to'ldirilgach)
+   va bemor (birinchi marta kirganda) uchun ishlatiladi. Rozilik vaqti
+   tegishli yozuvga (`doctor:{uid}` yoki `patient:{code}`) yoziladi, shu
+   sabab har bir foydalanuvchidan FAQAT bir marta so'raladi. */
+function ConsentScreen({ onAgree, onError, busy: externalBusy }) {
+  const t = useT();
+  const [checked, setChecked] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [legalDoc, setLegalDoc] = useState(null);
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      await onAgree();
+    } catch (e) {
+      onError(t("Roziligingizni saqlab bo'lmadi. Qaytadan urinib ko'ring.", 'Не удалось сохранить согласие. Попробуйте ещё раз.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: '40px 24px' }}>
+      <div style={{ width: 60, height: 60, borderRadius: 16, background: '#E9F0F1', color: C.teal, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+        <ShieldCheck size={30} />
+      </div>
+      <h1 style={{ fontFamily: SERIF, fontSize: 26, color: C.tealDeep, margin: '0 0 6px', fontWeight: 600 }}>
+        {t('Davom etishdan oldin', 'Прежде чем продолжить')}
+      </h1>
+      <p style={{ fontFamily: SANS, fontSize: 15, color: C.inkSoft, margin: '0 0 20px', lineHeight: 1.5 }}>
+        {t(
+          "Vaqtida ilovasidan foydalanish uchun Maxfiylik siyosati va Foydalanish shartlarini o'qib chiqib, roziligingizni tasdiqlashingiz kerak.",
+          'Для использования Vaqtida необходимо ознакомиться с Политикой конфиденциальности и Условиями использования и подтвердить согласие.'
+        )}
+      </p>
+
+      <div style={{ display: 'grid', gap: 8, marginBottom: 20 }}>
+        <Btn variant="ghost" full onClick={() => setLegalDoc('privacy')}>
+          <ShieldCheck size={16} /> {t('Maxfiylik siyosatini o\'qish', 'Читать политику конфиденциальности')}
+        </Btn>
+        <Btn variant="ghost" full onClick={() => setLegalDoc('terms')}>
+          <Files size={16} /> {t('Foydalanish shartlarini o\'qish', 'Читать условия использования')}
+        </Btn>
+      </div>
+
+      <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', marginBottom: 20 }}>
+        <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} style={{ width: 20, height: 20, marginTop: 1, flexShrink: 0 }} />
+        <span style={{ fontFamily: SANS, fontSize: 14, color: C.ink, lineHeight: 1.4 }}>
+          {t('Maxfiylik siyosati va Foydalanish shartlari bilan tanishdim va roziman.', 'Я ознакомлен(а) с Политикой конфиденциальности и Условиями использования и согласен(на) с ними.')}
+        </span>
+      </label>
+
+      <Btn variant="primary" full onClick={submit} disabled={busy || externalBusy || !checked}>
+        {(busy || externalBusy) ? t('Saqlanmoqda…', 'Сохранение…') : t('Roziman, davom etish', 'Согласен(на), продолжить')}
+      </Btn>
+
+      {legalDoc && <LegalDocument doc={legalDoc} onSwitch={setLegalDoc} onBack={() => setLegalDoc(null)} overlay />}
     </div>
   );
 }
@@ -1085,11 +1336,12 @@ function DoctorProfileSetup({ uid, email, onDone, onError }) {
 
 /* ------------------------ Sarlavha (header) ------------------------ */
 function TopBar({ title, subtitle, onBack, right }) {
+  const t = useT();
   return (
     <div style={{ position: 'sticky', top: 0, zIndex: 5, background: C.paper, padding: '16px 16px 12px', borderBottom: `1px solid ${C.line}` }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         {onBack && (
-          <button onClick={onBack} style={{ background: C.paperSoft, border: 'none', borderRadius: 10, width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: C.ink }}>
+          <button onClick={onBack} aria-label={t('Orqaga', 'Назад')} style={{ background: C.paperSoft, border: 'none', borderRadius: 10, width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: C.ink }}>
             <ArrowLeft size={20} />
           </button>
         )}
@@ -2956,6 +3208,19 @@ function PatientApp({ code, onLogout, onError }) {
         </div>
       </div>
     );
+
+  if (!patient.consentAt) {
+    return (
+      <ConsentScreen
+        onError={onError}
+        onAgree={async () => {
+          const updated = { ...patient, consentAt: Date.now() };
+          await store.set(`patient:${code}`, updated, true);
+          setPatient(updated);
+        }}
+      />
+    );
+  }
 
   const takenCount = doses.filter((d) => d.status === 'taken').length;
   const niceDate = localeDate(now, lang);
