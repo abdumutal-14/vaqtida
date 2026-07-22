@@ -150,7 +150,12 @@ const LangContext = createContext('uz');
 const translate = (lang, uz, ru) => (lang === 'ru' ? ru : uz);
 function useT() {
   const lang = useContext(LangContext);
-  return (uz, ru) => translate(lang, uz, ru);
+  // useCallback bilan barqarorlashtirilgan — aks holda har render'da yangi
+  // funksiya qaytadi va uni useCallback/useEffect bog'liqligida ishlatgan
+  // joylar (masalan DoctorPatient'ning "load") cheksiz qayta-qayta
+  // ishga tushib qolar edi (har render → yangi "t" → "load" yangilanadi →
+  // effekt qayta ishga tushadi → setState → render → ...).
+  return useCallback((uz, ru) => translate(lang, uz, ru), [lang]);
 }
 
 /* ------------------------------ Kichik UI ------------------------------ */
