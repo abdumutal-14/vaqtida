@@ -4,6 +4,7 @@ import {
   Trash2, Pencil, Plus, ArrowLeft, LogOut, Copy, X, ChevronRight, Clock,
   Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files, Lock, Mail, CalendarDays, Phone, Type, Download,
   Store, Search, BadgeCheck, XCircle, IdCard, History, KeyRound, ShieldCheck, RefreshCw, Globe, WifiOff, Link2, QrCode, Ban, HelpCircle,
+  Send, MessageCircle,
 } from 'lucide-react';
 import { store, hasBackend, auth, adminCreateDoctor, adminListDoctors, adminResetDoctorPassword, adminSetDoctorBlocked, offlineQueue } from './db.js';
 import { pushSupported, subscribeToPush, unsubscribeFromPush, getPushState } from './push.js';
@@ -2141,6 +2142,118 @@ function WeeklyHistory({ code, refreshKey }) {
   );
 }
 
+/* Bemor va shifokor o'rtasidagi oddiy xabar almashinuvi — real vaqtli
+   chat emas, har ikki tomon ilovani ochganda ko'radi (real-time
+   obuna orqali tezroq yangilanadi). Bemorga ulangan BARCHA shifokorlar
+   bitta umumiy suhbatni ko'radi — audit tarixi bilan bir xil naqsh. */
+function MessageThread({ code, viewerRole, doctorProfile }) {
+  const t = useT();
+  const lang = useContext(LangContext);
+  const [messages, setMessages] = useState(null);
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const bottomRef = useRef(null);
+
+  const load = useCallback(async () => {
+    try {
+      setMessages((await store.get(`messages:${code}`, true)) || []);
+    } catch (e) {
+      setMessages([]);
+    }
+  }, [code]);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    const off = store.subscribe((payload) => {
+      const key = payload?.new?.key || payload?.old?.key;
+      if (key === `messages:${code}`) load();
+    });
+    return off;
+  }, [code, load]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [messages]);
+
+  const send = async () => {
+    const trimmed = text.trim();
+    if (!trimmed || sending) return;
+    setSending(true);
+    try {
+      const list = (await store.get(`messages:${code}`, true)) || [];
+      const entry = {
+        id: uid(),
+        from: viewerRole,
+        text: trimmed,
+        at: Date.now(),
+        doctorName: viewerRole === 'doctor' ? (doctorProfile?.fullName || null) : undefined,
+      };
+      const next = [...list, entry].slice(-200);
+      await store.set(`messages:${code}`, next, true);
+      setMessages(next);
+      setText('');
+    } catch (e) {
+      // xato bo'lsa ham matn saqlanib qoladi — foydalanuvchi qayta yuborishi mumkin
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <Card style={{ padding: 12 }}>
+      <div style={{ maxHeight: 260, overflowY: 'auto', display: 'grid', gap: 8, marginBottom: 10 }}>
+        {messages === null ? (
+          <div style={{ color: C.inkSoft, fontSize: 13.5, textAlign: 'center', padding: 10 }}>{t('Yuklanmoqda…', 'Загрузка…')}</div>
+        ) : messages.length === 0 ? (
+          <div style={{ color: C.inkSoft, fontSize: 13.5, textAlign: 'center', padding: 10 }}>{t("Hali xabar yo'q.", 'Пока нет сообщений.')}</div>
+        ) : (
+          messages.map((m) => {
+            const mine = m.from === viewerRole;
+            return (
+              <div key={m.id} style={{ display: 'flex', justifyContent: mine ? 'flex-end' : 'flex-start' }}>
+                <div
+                  style={{
+                    maxWidth: '80%', padding: '8px 12px', borderRadius: 14,
+                    background: mine ? C.teal : C.paperSoft,
+                    color: mine ? C.paper : C.ink,
+                    fontFamily: SANS, fontSize: 14, lineHeight: 1.4,
+                  }}
+                >
+                  {!mine && m.from === 'doctor' && m.doctorName && (
+                    <div style={{ fontSize: 11.5, fontWeight: 700, opacity: 0.75, marginBottom: 2 }}>{m.doctorName}</div>
+                  )}
+                  {m.text}
+                  <div style={{ fontSize: 10.5, opacity: 0.65, marginTop: 3, textAlign: 'right' }}>
+                    {new Date(m.at).toLocaleString(lang === 'ru' ? 'ru-RU' : 'uz-UZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+        <div ref={bottomRef} />
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          style={{ ...inputStyle, flex: 1 }}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={t('Xabar yozing…', 'Напишите сообщение…')}
+          onKeyDown={(e) => e.key === 'Enter' && send()}
+        />
+        <button
+          onClick={send}
+          disabled={sending || !text.trim()}
+          style={{ ...iconBtn, width: 46, background: C.teal, color: C.paper, opacity: sending || !text.trim() ? 0.5 : 1 }}
+        >
+          <Send size={18} />
+        </button>
+      </div>
+    </Card>
+  );
+}
+
 /* Shifokor: bitta bemor sahifasi — retsept + statistika */
 function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDeletedPatient }) {
   const t = useT();
@@ -2545,6 +2658,10 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
             )}
           </>
         )}
+
+        {/* Bemor bilan xabar almashinuv */}
+        <SectionTitle icon={<MessageCircle size={18} color={C.teal} />}>{t('Xabarlar', 'Сообщения')}</SectionTitle>
+        <MessageThread code={code} viewerRole="doctor" doctorProfile={doctorProfile} />
 
         <Btn variant="ghost" full onClick={deletePatient} style={{ marginTop: 24, color: C.red, border: '1.5px solid #E7C6C1' }}>
           <Trash2 size={16} /> {t("Ro'yxatimdan olib tashlash", 'Удалить из моего списка')}
@@ -3042,10 +3159,11 @@ function PatientTabBar({ tab, setTab }) {
   const tabs = [
     { key: 'today', label: t('Bugun', 'Сегодня'), icon: <Clock size={19} /> },
     { key: 'history', label: t('Tarix', 'История'), icon: <CalendarDays size={19} /> },
+    { key: 'chat', label: t('Xabar', 'Чат'), icon: <MessageCircle size={19} /> },
     { key: 'info', label: t("Ma'lumot", 'Инфо'), icon: <Info size={19} /> },
   ];
   return (
-    <div style={{ display: 'flex', gap: 8, margin: '4px 0 14px' }}>
+    <div style={{ display: 'flex', gap: 6, margin: '4px 0 14px' }}>
       {tabs.map((tb) => {
         const active = tab === tb.key;
         return (
@@ -3448,6 +3566,20 @@ function PatientApp({ code, onLogout, onError }) {
             {/* Haftalik tarix */}
             <SectionTitle icon={<CalendarDays size={18} color={C.teal} />}>{t("So'nggi 7 kun", 'Последние 7 дней')}</SectionTitle>
             <WeeklyHistory code={code} refreshKey={log.join(',')} />
+          </>
+        )}
+
+        {tab === 'chat' && (
+          <>
+            {/* Shifokor bilan xabar almashinuv */}
+            <SectionTitle icon={<MessageCircle size={18} color={C.teal} />}>{t('Shifokor bilan xabar', 'Сообщение врачу')}</SectionTitle>
+            <Banner type="warn" icon={<AlertTriangle size={18} />}>
+              {t(
+                "Favqulodda holatda darhol tez tibbiy yordamga (103) murojaat qiling — bu yerdagi xabarga darhol javob berilishi kafolatlanmaydi.",
+                'В экстренной ситуации немедленно обратитесь в скорую помощь (103) — мгновенный ответ на сообщение здесь не гарантируется.'
+              )}
+            </Banner>
+            <MessageThread code={code} viewerRole="patient" />
           </>
         )}
 
