@@ -3053,6 +3053,41 @@ function PatientLogin({ onLogin, onBack, onError, initialCode }) {
   );
 }
 
+/* Bemor ekrani bo'limlari: katta, sodda tugmalar (yoshi katta
+   foydalanuvchilar ham qiynalmasin uchun matn+belgi bilan). */
+function PatientTabBar({ tab, setTab }) {
+  const t = useT();
+  const tabs = [
+    { key: 'today', label: t('Bugun', 'Сегодня'), icon: <Clock size={19} /> },
+    { key: 'history', label: t('Tarix', 'История'), icon: <CalendarDays size={19} /> },
+    { key: 'info', label: t("Ma'lumot", 'Инфо'), icon: <Info size={19} /> },
+  ];
+  return (
+    <div style={{ display: 'flex', gap: 8, margin: '4px 0 14px' }}>
+      {tabs.map((tb) => {
+        const active = tab === tb.key;
+        return (
+          <button
+            key={tb.key}
+            onClick={() => setTab(tb.key)}
+            aria-pressed={active}
+            style={{
+              flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+              padding: '10px 6px', borderRadius: 12, cursor: 'pointer',
+              border: `1.5px solid ${active ? C.teal : C.line}`,
+              background: active ? C.teal : C.white,
+              color: active ? C.paper : C.ink,
+              fontFamily: SANS, fontSize: 13, fontWeight: 700,
+            }}
+          >
+            {tb.icon} {tb.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /* =========================================================================
    BEMOR — asosiy ekran
    ========================================================================= */
@@ -3071,6 +3106,7 @@ function PatientApp({ code, onLogout, onError }) {
   const [installPrompt, setInstallPrompt] = useState(null);
   const [pendingSync, setPendingSync] = useState(() => offlineQueue.size() > 0);
   const [doctors, setDoctors] = useState([]);
+  const [tab, setTab] = useState('today'); // today | history | info
 
   const audioRef = useRef(null);
   const beepedRef = useRef(new Set()); // qaytariqni oldini olish uchun
@@ -3359,94 +3395,108 @@ function PatientApp({ code, onLogout, onError }) {
           </Banner>
         )}
 
-        {/* Tashxis */}
-        <Card style={{ background: C.teal, border: 'none', color: C.paper, marginBottom: 4 }}>
-          <div style={{ fontFamily: SANS, fontSize: 13, opacity: 0.8 }}>{t('Tashxisingiz', 'Ваш диагноз')}</div>
-          <div style={{ fontFamily: SERIF, fontSize: 20, fontWeight: 600, color: C.gold, marginTop: 2 }}>{patient.diagnosis}</div>
-          {doctors.length > 0 && (
-            <div style={{ marginTop: 8 }}>
-              {doctors.map((d, i) => (
-                <div key={d.doctorId || i} style={{ fontFamily: SANS, fontSize: 12.5, opacity: 0.85, display: 'flex', alignItems: 'center', gap: 5, marginTop: i > 0 ? 3 : 0 }}>
-                  <IdCard size={13} /> {t('Tayinlagan', 'Назначил')}: {d.fullName}{d.licenseNumber ? ` (${t('litsenziya', 'лицензия')}: ${d.licenseNumber})` : ''}
+        <PatientTabBar tab={tab} setTab={setTab} />
+
+        {tab === 'today' && (
+          <>
+            {/* Kun aylanasi */}
+            <SectionTitle icon={<Clock size={18} color={C.teal} />}>{t('Bugungi kun aylanasi', 'Круг дня сегодня')}</SectionTitle>
+            <Card style={{ padding: '18px 10px' }}>
+              {doses.length === 0 ? (
+                <div style={{ textAlign: 'center', color: C.inkSoft, padding: 20 }}>
+                  {hasUnscheduled
+                    ? t("Shifokoringiz dori yozgan, ammo qabul vaqtlari hali belgilanmagan.", 'Врач назначил лекарства, но время приёма ещё не указано.')
+                    : t("Bugun uchun tayinlangan dori yo'q.", 'На сегодня лекарств не назначено.')}
                 </div>
-              ))}
-            </div>
-          )}
-        </Card>
+              ) : (
+                <>
+                  <DayArc doses={doses} now={now} />
+                  <div style={{ textAlign: 'center', fontFamily: SANS, fontSize: 13.5, color: C.inkSoft, marginTop: 8 }}>
+                    {t(`Bugun ${takenCount}/${doses.length} doza qabul qilindi`, `Сегодня принято ${takenCount}/${doses.length} доз`)}
+                  </div>
+                </>
+              )}
+            </Card>
 
-        {/* Kun aylanasi */}
-        <SectionTitle icon={<Clock size={18} color={C.teal} />}>{t('Bugungi kun aylanasi', 'Круг дня сегодня')}</SectionTitle>
-        <Card style={{ padding: '18px 10px' }}>
-          {doses.length === 0 ? (
-            <div style={{ textAlign: 'center', color: C.inkSoft, padding: 20 }}>
-              {hasUnscheduled
-                ? t("Shifokoringiz dori yozgan, ammo qabul vaqtlari hali belgilanmagan.", 'Врач назначил лекарства, но время приёма ещё не указано.')
-                : t("Bugun uchun tayinlangan dori yo'q.", 'На сегодня лекарств не назначено.')}
-            </div>
-          ) : (
-            <>
-              <DayArc doses={doses} now={now} />
-              <div style={{ textAlign: 'center', fontFamily: SANS, fontSize: 13.5, color: C.inkSoft, marginTop: 8 }}>
-                {t(`Bugun ${takenCount}/${doses.length} doza qabul qilindi`, `Сегодня принято ${takenCount}/${doses.length} доз`)}
+            {/* Dori jadvali (read-only, faqat belgilash mumkin) */}
+            <SectionTitle icon={<Pill size={18} color={C.teal} />}>{t('Bugungi dorilar', 'Лекарства на сегодня')}</SectionTitle>
+            {doses.length === 0 ? (
+              <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 22 }}>
+                {hasUnscheduled
+                  ? t("Shifokoringiz retsept yozgan, ammo qabul vaqtlari hali belgilanmagan. Tez orada belgilanadi.", 'Врач выписал рецепт, но время приёма ещё не указано. Скоро будет назначено.')
+                  : t("Hozircha faol dori yo'q. Bu — yaxshi belgi bo'lishi mumkin 🙂", 'Пока нет активных лекарств. Возможно, это хороший знак 🙂')}
+              </Card>
+            ) : (
+              <div style={{ display: 'grid', gap: 10 }}>
+                {doses.map((d) => (
+                  <DoseCard key={d.key} dose={d} onTake={() => markTaken(d)} onUndo={() => undoTaken(d)} />
+                ))}
               </div>
-            </>
-          )}
-        </Card>
-
-        {/* Dori jadvali (read-only, faqat belgilash mumkin) */}
-        <SectionTitle icon={<Pill size={18} color={C.teal} />}>{t('Bugungi dorilar', 'Лекарства на сегодня')}</SectionTitle>
-        {doses.length === 0 ? (
-          <Card style={{ textAlign: 'center', color: C.inkSoft, padding: 22 }}>
-            {hasUnscheduled
-              ? t("Shifokoringiz retsept yozgan, ammo qabul vaqtlari hali belgilanmagan. Tez orada belgilanadi.", 'Врач выписал рецепт, но время приёма ещё не указано. Скоро будет назначено.')
-              : t("Hozircha faol dori yo'q. Bu — yaxshi belgi bo'lishi mumkin 🙂", 'Пока нет активных лекарств. Возможно, это хороший знак 🙂')}
-          </Card>
-        ) : (
-          <div style={{ display: 'grid', gap: 10 }}>
-            {doses.map((d) => (
-              <DoseCard key={d.key} dose={d} onTake={() => markTaken(d)} onUndo={() => undoTaken(d)} />
-            ))}
-          </div>
+            )}
+          </>
         )}
 
-        {/* Haftalik tarix */}
-        <SectionTitle icon={<CalendarDays size={18} color={C.teal} />}>{t("So'nggi 7 kun", 'Последние 7 дней')}</SectionTitle>
-        <WeeklyHistory code={code} refreshKey={log.join(',')} />
-
-        {/* Bildirishnoma boshqaruvi */}
-        <SectionTitle icon={<Bell size={18} color={C.teal} />}>{t('Eslatmalar', 'Напоминания')}</SectionTitle>
-
-        {installPrompt && (
-          <Btn variant="gold" full onClick={doInstall} style={{ marginBottom: 10 }}>
-            <Download size={18} /> {t("Ilovani telefonga o'rnatish", 'Установить приложение на телефон')}
-          </Btn>
+        {tab === 'history' && (
+          <>
+            {/* Haftalik tarix */}
+            <SectionTitle icon={<CalendarDays size={18} color={C.teal} />}>{t("So'nggi 7 kun", 'Последние 7 дней')}</SectionTitle>
+            <WeeklyHistory code={code} refreshKey={log.join(',')} />
+          </>
         )}
 
-        {notifPerm === 'default' && (
-          <Btn variant="primary" full onClick={enableNotif}>
-            <Bell size={18} /> {t('Bildirishnomalarni yoqish', 'Включить уведомления')}
-          </Btn>
-        )}
-        {notifPerm === 'granted' && (
-          <Banner type="success" icon={<Check size={18} />}>
-            {t('Bildirishnomalar yoqilgan. Dori vaqti kelganda ogohlantiramiz.', 'Уведомления включены. Мы предупредим, когда придёт время лекарства.')}
-            {pushOn && <div style={{ marginTop: 4 }}>{t('Fon bildirishnomasiga', 'На фоновые уведомления')} <b>{t("obuna bo'ldingiz", 'вы подписались')}</b>.</div>}
-          </Banner>
-        )}
-        {notifPerm === 'denied' && (
-          <Banner type="warn" icon={<BellOff size={18} />}>{t('Bildirishnomalar bloklangan. Brauzer sozlamalaridan (qulf belgisi → ruxsatlar) yoqishingiz mumkin.', 'Уведомления заблокированы. Их можно включить в настройках браузера (значок замка → разрешения).')}</Banner>
-        )}
-        {notifPerm === 'unavailable' && (
-          <Banner type="warn" icon={<BellOff size={18} />}>{t("Bu brauzer tizim bildirishnomalarini qo'llab-quvvatlamaydi. Ilova ichidagi banner va tovush baribir ishlaydi.", 'Этот браузер не поддерживает системные уведомления. Баннер и звук в приложении всё равно будут работать.')}</Banner>
-        )}
+        {tab === 'info' && (
+          <>
+            {/* Tashxis */}
+            <Card style={{ background: C.teal, border: 'none', color: C.paper, marginBottom: 4 }}>
+              <div style={{ fontFamily: SANS, fontSize: 13, opacity: 0.8 }}>{t('Tashxisingiz', 'Ваш диагноз')}</div>
+              <div style={{ fontFamily: SERIF, fontSize: 20, fontWeight: 600, color: C.gold, marginTop: 2 }}>{patient.diagnosis}</div>
+              {doctors.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  {doctors.map((d, i) => (
+                    <div key={d.doctorId || i} style={{ fontFamily: SANS, fontSize: 12.5, opacity: 0.85, display: 'flex', alignItems: 'center', gap: 5, marginTop: i > 0 ? 3 : 0 }}>
+                      <IdCard size={13} /> {t('Tayinlagan', 'Назначил')}: {d.fullName}{d.licenseNumber ? ` (${t('litsenziya', 'лицензия')}: ${d.licenseNumber})` : ''}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
 
-        <Banner type="info" icon={<Info size={18} />} title={t('Muhim', 'Важно')}>
-          {lang === 'ru' ? (
-            <>Пока напоминания работают, только когда <b>приложение открыто</b>. Основа для фоновых уведомлений (даже если приложение закрыто) готова — <b>они полностью заработают после подключения сервера</b>. На iPhone сначала нужно <b>добавить приложение на главный экран</b>.</>
-          ) : (
-            <>Hozircha eslatmalar <b>ilova ochiq turganda</b> ishlaydi. Fon bildirishnomasi (ilova yopiq bo'lsa ham) uchun asos tayyorlandi — u <b>server tomoni ulangach</b> to'liq ishga tushadi. iPhone'da ilovani avval <b>bosh ekranga qo'shish</b> kerak.</>
-          )}
-        </Banner>
+            {/* Bildirishnoma boshqaruvi */}
+            <SectionTitle icon={<Bell size={18} color={C.teal} />}>{t('Eslatmalar', 'Напоминания')}</SectionTitle>
+
+            {installPrompt && (
+              <Btn variant="gold" full onClick={doInstall} style={{ marginBottom: 10 }}>
+                <Download size={18} /> {t("Ilovani telefonga o'rnatish", 'Установить приложение на телефон')}
+              </Btn>
+            )}
+
+            {notifPerm === 'default' && (
+              <Btn variant="primary" full onClick={enableNotif}>
+                <Bell size={18} /> {t('Bildirishnomalarni yoqish', 'Включить уведомления')}
+              </Btn>
+            )}
+            {notifPerm === 'granted' && (
+              <Banner type="success" icon={<Check size={18} />}>
+                {t('Bildirishnomalar yoqilgan. Dori vaqti kelganda ogohlantiramiz.', 'Уведомления включены. Мы предупредим, когда придёт время лекарства.')}
+                {pushOn && <div style={{ marginTop: 4 }}>{t('Fon bildirishnomasiga', 'На фоновые уведомления')} <b>{t("obuna bo'ldingiz", 'вы подписались')}</b>.</div>}
+              </Banner>
+            )}
+            {notifPerm === 'denied' && (
+              <Banner type="warn" icon={<BellOff size={18} />}>{t('Bildirishnomalar bloklangan. Brauzer sozlamalaridan (qulf belgisi → ruxsatlar) yoqishingiz mumkin.', 'Уведомления заблокированы. Их можно включить в настройках браузера (значок замка → разрешения).')}</Banner>
+            )}
+            {notifPerm === 'unavailable' && (
+              <Banner type="warn" icon={<BellOff size={18} />}>{t("Bu brauzer tizim bildirishnomalarini qo'llab-quvvatlamaydi. Ilova ichidagi banner va tovush baribir ishlaydi.", 'Этот браузер не поддерживает системные уведомления. Баннер и звук в приложении всё равно будут работать.')}</Banner>
+            )}
+
+            <Banner type="info" icon={<Info size={18} />} title={t('Muhim', 'Важно')}>
+              {lang === 'ru' ? (
+                <>Пока напоминания работают, только когда <b>приложение открыто</b>. Основа для фоновых уведомлений (даже если приложение закрыто) готова — <b>они полностью заработают после подключения сервера</b>. На iPhone сначала нужно <b>добавить приложение на главный экран</b>.</>
+              ) : (
+                <>Hozircha eslatmalar <b>ilova ochiq turganda</b> ishlaydi. Fon bildirishnomasi (ilova yopiq bo'lsa ham) uchun asos tayyorlandi — u <b>server tomoni ulangach</b> to'liq ishga tushadi. iPhone'da ilovani avval <b>bosh ekranga qo'shish</b> kerak.</>
+              )}
+            </Banner>
+          </>
+        )}
       </div>
     </div>
   );
