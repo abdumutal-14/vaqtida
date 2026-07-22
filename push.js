@@ -53,3 +53,15 @@ export async function subscribeToPush(code) {
   await store.set(`push:${code}`, next, true);
   return entry;
 }
+
+/* Obunani bekor qilish (bemor eslatmalarni o'chirganda) + Supabase'dan olib tashlash. */
+export async function unsubscribeFromPush(code) {
+  if (!pushSupported()) return;
+  const reg = await navigator.serviceWorker.ready;
+  const sub = await reg.pushManager.getSubscription();
+  if (!sub) return;
+  const endpoint = sub.endpoint;
+  await sub.unsubscribe();
+  const list = (await store.get(`push:${code}`, true)) || [];
+  await store.set(`push:${code}`, list.filter((e) => e.endpoint !== endpoint), true);
+}

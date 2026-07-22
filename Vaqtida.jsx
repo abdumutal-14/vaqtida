@@ -6,7 +6,7 @@ import {
   Store, Search, BadgeCheck, XCircle, IdCard, History, KeyRound, ShieldCheck, RefreshCw, Globe, WifiOff, Link2, QrCode, Ban, HelpCircle,
 } from 'lucide-react';
 import { store, hasBackend, auth, adminCreateDoctor, adminListDoctors, adminResetDoctorPassword, adminSetDoctorBlocked, offlineQueue } from './db.js';
-import { pushSupported, subscribeToPush, getPushState } from './push.js';
+import { pushSupported, subscribeToPush, unsubscribeFromPush, getPushState } from './push.js';
 import QRCode from 'qrcode';
 
 /* =========================================================================
@@ -724,29 +724,6 @@ function RoleSelect({ onPick }) {
           <ChevronRight color={C.inkSoft} />
         </Card>
       </div>
-
-      <div style={{ textAlign: 'center', margin: '16px 0 8px' }}>
-        <span
-          style={{
-            fontFamily: SANS, fontSize: 12.5, fontWeight: 600, padding: '5px 12px', borderRadius: 20,
-            color: hasBackend ? '#3E5637' : '#7A5A12',
-            background: hasBackend ? '#E7F0E3' : '#FBF1D6',
-            border: `1px solid ${hasBackend ? C.sage : C.gold}`,
-            display: 'inline-flex', alignItems: 'center', gap: 6,
-          }}
-        >
-          <span style={{ width: 8, height: 8, borderRadius: 4, background: hasBackend ? C.sage : C.gold, display: 'inline-block' }} />
-          {hasBackend ? t("Bulutga ulangan — qurilmalar o'rtasida sinxron", 'Подключено к облаку — синхронизация между устройствами') : t('Mahalliy rejim — faqat shu brauzerda', 'Локальный режим — только в этом браузере')}
-        </span>
-      </div>
-
-      <Banner type="info" icon={<Info size={18} />}>
-        {hasBackend ? (
-          <><b>{t('Eslatma:', 'Примечание:')}</b> {t("Har shifokor o'z hisobi bilan kiradi va ", 'Каждый врач входит в свой аккаунт и видит ')}<b>{t('faqat o\'z bemorlarini', 'только своих пациентов')}</b>{t(` ko'radi. Bemorlar ${CODE_LEN} belgili kod bilan kiradi — kodni maxfiy saqlang.`, `. Пациенты входят по ${CODE_LEN}-значному коду — храните код в тайне.`)}</>
-        ) : (
-          <><b>{t('Eslatma:', 'Примечание:')}</b> {t('Bu mahalliy demo — ma\'lumot faqat shu brauzerda saqlanadi va autentifikatsiyasiz ishlaydi.', 'Это локальная демо-версия — данные хранятся только в этом браузере и работают без авторизации.')}</>
-        )}
-      </Banner>
 
       <div style={{ textAlign: 'center', marginTop: 22 }}>
         <button onClick={() => setLegalDoc('privacy')} style={legalLinkStyle}>{t('Maxfiylik siyosati', 'Политика конфиденциальности')}</button>
@@ -3112,9 +3089,15 @@ function PatientApp({ code, onLogout, onError }) {
   const [pendingSync, setPendingSync] = useState(() => offlineQueue.size() > 0);
   const [doctors, setDoctors] = useState([]);
   const [tab, setTab] = useState('today'); // today | history | info
+  const [remindersOn, setRemindersOn] = useState(true);
 
   const audioRef = useRef(null);
   const beepedRef = useRef(new Set()); // qaytariqni oldini olish uchun
+
+  // Eslatmalar yoqilgan/o'chirilganligi — qurilmaga xos sozlama
+  useEffect(() => {
+    store.get('remindersOn', false).then((v) => { if (v === false) setRemindersOn(false); }).catch(() => {});
+  }, []);
 
   const day = todayStr();
 
@@ -3243,7 +3226,7 @@ function PatientApp({ code, onLogout, onError }) {
 
   // Eslatma effekti: beep + notification (yangi due dozalar uchun)
   useEffect(() => {
-    if (dueDoses.length === 0) return;
+    if (!remindersOn || dueDoses.length === 0) return;
     let fired = false;
     for (const d of dueDoses) {
       const tag = `${day}:${d.key}`;
@@ -3262,7 +3245,7 @@ function PatientApp({ code, onLogout, onError }) {
       beep();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dueDoses.map((d) => d.key).join(','), now]);
+  }, [dueDoses.map((d) => d.key).join(','), now, remindersOn]);
 
   /* Doza belgilash internetsiz ham ishlashi kerak: mahalliy holatni
      darhol yangilaymiz va yozuvni oflayn navbatga qo'yamiz — internet
@@ -3303,6 +3286,25 @@ function PatientApp({ code, onLogout, onError }) {
       }
     } catch (e) {
       onError(t('Bildirishnoma ruxsatini olishda muammo.', 'Проблема при получении разрешения на уведомления.'));
+    }
+  };
+
+  /* Eslatmalarni butunlay o'chirish/yoqish (brauzer ruxsatidan alohida —
+     patient istalgan vaqt ilova ichida to'xtatib/qayta yoqa oladi). */
+  const toggleReminders = async () => {
+    const next = !remindersOn;
+    setRemindersOn(next);
+    try {
+      await store.set('remindersOn', next, false);
+    } catch (e) { /* qurilma xotirasi bo'lmasa ham davom etamiz */ }
+    if (!next) {
+      try { await unsubscribeFromPush(code); } catch (e) {}
+      setPushOn(false);
+    } else if (notifPerm === 'granted' && pushSupported() && !pushOn) {
+      try {
+        await subscribeToPush(code);
+        setPushOn(true);
+      } catch (e) {}
     }
   };
 
@@ -3379,7 +3381,7 @@ function PatientApp({ code, onLogout, onError }) {
         )}
 
         {/* Eslatma banneri (due doza) */}
-        {dueDoses.length > 0 && !dismissedReminder && (
+        {remindersOn && dueDoses.length > 0 && !dismissedReminder && (
           <div style={{ animation: 'none' }}>
             <Banner type="warn" icon={<Bell size={18} />} title={t('Dori qabul qilish vaqti!', 'Время принять лекарство!')} onClose={() => setDismissedReminder(true)}>
               {dueDoses.map((d) => (
@@ -3469,37 +3471,46 @@ function PatientApp({ code, onLogout, onError }) {
             {/* Bildirishnoma boshqaruvi */}
             <SectionTitle icon={<Bell size={18} color={C.teal} />}>{t('Eslatmalar', 'Напоминания')}</SectionTitle>
 
-            {installPrompt && (
-              <Btn variant="gold" full onClick={doInstall} style={{ marginBottom: 10 }}>
-                <Download size={18} /> {t("Ilovani telefonga o'rnatish", 'Установить приложение на телефон')}
-              </Btn>
-            )}
+            {!remindersOn ? (
+              <>
+                <Banner type="warn" icon={<BellOff size={18} />}>
+                  {t("Eslatmalar o'chirilgan — dori vaqti kelganda ogohlantirilmaysiz.", 'Напоминания отключены — вы не будете получать уведомления о времени приёма.')}
+                </Banner>
+                <Btn variant="primary" full onClick={toggleReminders} style={{ marginTop: 10 }}>
+                  <Bell size={18} /> {t('Eslatmalarni yoqish', 'Включить напоминания')}
+                </Btn>
+              </>
+            ) : (
+              <>
+                {installPrompt && (
+                  <Btn variant="gold" full onClick={doInstall} style={{ marginBottom: 10 }}>
+                    <Download size={18} /> {t("Ilovani telefonga o'rnatish", 'Установить приложение на телефон')}
+                  </Btn>
+                )}
 
-            {notifPerm === 'default' && (
-              <Btn variant="primary" full onClick={enableNotif}>
-                <Bell size={18} /> {t('Bildirishnomalarni yoqish', 'Включить уведомления')}
-              </Btn>
-            )}
-            {notifPerm === 'granted' && (
-              <Banner type="success" icon={<Check size={18} />}>
-                {t('Bildirishnomalar yoqilgan. Dori vaqti kelganda ogohlantiramiz.', 'Уведомления включены. Мы предупредим, когда придёт время лекарства.')}
-                {pushOn && <div style={{ marginTop: 4 }}>{t('Fon bildirishnomasiga', 'На фоновые уведомления')} <b>{t("obuna bo'ldingiz", 'вы подписались')}</b>.</div>}
-              </Banner>
-            )}
-            {notifPerm === 'denied' && (
-              <Banner type="warn" icon={<BellOff size={18} />}>{t('Bildirishnomalar bloklangan. Brauzer sozlamalaridan (qulf belgisi → ruxsatlar) yoqishingiz mumkin.', 'Уведомления заблокированы. Их можно включить в настройках браузера (значок замка → разрешения).')}</Banner>
-            )}
-            {notifPerm === 'unavailable' && (
-              <Banner type="warn" icon={<BellOff size={18} />}>{t("Bu brauzer tizim bildirishnomalarini qo'llab-quvvatlamaydi. Ilova ichidagi banner va tovush baribir ishlaydi.", 'Этот браузер не поддерживает системные уведомления. Баннер и звук в приложении всё равно будут работать.')}</Banner>
-            )}
+                {notifPerm === 'default' && (
+                  <Btn variant="primary" full onClick={enableNotif}>
+                    <Bell size={18} /> {t('Bildirishnomalarni yoqish', 'Включить уведомления')}
+                  </Btn>
+                )}
+                {notifPerm === 'granted' && (
+                  <Banner type="success" icon={<Check size={18} />}>
+                    {t('Bildirishnomalar yoqilgan. Dori vaqti kelganda ogohlantiramiz.', 'Уведомления включены. Мы предупредим, когда придёт время лекарства.')}
+                    {pushOn && <div style={{ marginTop: 4 }}>{t('Fon bildirishnomasiga', 'На фоновые уведомления')} <b>{t("obuna bo'ldingiz", 'вы подписались')}</b>.</div>}
+                  </Banner>
+                )}
+                {notifPerm === 'denied' && (
+                  <Banner type="warn" icon={<BellOff size={18} />}>{t('Bildirishnomalar bloklangan. Brauzer sozlamalaridan (qulf belgisi → ruxsatlar) yoqishingiz mumkin.', 'Уведомления заблокированы. Их можно включить в настройках браузера (значок замка → разрешения).')}</Banner>
+                )}
+                {notifPerm === 'unavailable' && (
+                  <Banner type="warn" icon={<BellOff size={18} />}>{t("Bu brauzer tizim bildirishnomalarini qo'llab-quvvatlamaydi. Ilova ichidagi banner va tovush baribir ishlaydi.", 'Этот браузер не поддерживает системные уведомления. Баннер и звук в приложении всё равно будут работать.')}</Banner>
+                )}
 
-            <Banner type="info" icon={<Info size={18} />} title={t('Muhim', 'Важно')}>
-              {lang === 'ru' ? (
-                <>Пока напоминания работают, только когда <b>приложение открыто</b>. Основа для фоновых уведомлений (даже если приложение закрыто) готова — <b>они полностью заработают после подключения сервера</b>. На iPhone сначала нужно <b>добавить приложение на главный экран</b>.</>
-              ) : (
-                <>Hozircha eslatmalar <b>ilova ochiq turganda</b> ishlaydi. Fon bildirishnomasi (ilova yopiq bo'lsa ham) uchun asos tayyorlandi — u <b>server tomoni ulangach</b> to'liq ishga tushadi. iPhone'da ilovani avval <b>bosh ekranga qo'shish</b> kerak.</>
-              )}
-            </Banner>
+                <Btn variant="quiet" full onClick={toggleReminders} style={{ marginTop: 10 }}>
+                  <BellOff size={18} /> {t('Eslatmalarni o\'chirish', 'Отключить напоминания')}
+                </Btn>
+              </>
+            )}
           </>
         )}
       </div>
