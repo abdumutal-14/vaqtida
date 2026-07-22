@@ -496,36 +496,38 @@ export default function App() {
           )}
           <ErrorBoundary>{content}</ErrorBoundary>
 
-          {/* Til va katta shrift — har doim ko'rinadigan */}
+          {/* Til va katta shrift — har doim ko'rinadigan. Ixcham (faqat
+              belgi) tugmalar — sahifa pastidagi matn/tugmalarni
+              to'smasligi uchun. */}
           <div style={{ position: 'fixed', right: 14, bottom: 14, zIndex: 60, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end' }}>
             <button
               onClick={toggleLang}
               title={t('Tilni almashtirish', 'Сменить язык')}
+              aria-label={t('Tilni almashtirish', 'Сменить язык')}
               style={{
-                display: 'inline-flex', alignItems: 'center', gap: 7,
-                padding: '9px 13px', borderRadius: 24, cursor: 'pointer',
-                fontFamily: SANS, fontSize: 13.5, fontWeight: 700,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 42, height: 42, borderRadius: 21, cursor: 'pointer',
                 background: C.white, color: C.teal, border: `1.5px solid ${C.line}`,
                 boxShadow: '0 3px 10px rgba(27,48,56,0.18)',
               }}
             >
-              <Globe size={17} /> {lang === 'uz' ? "O'zbekcha" : 'Русский'}
+              <Globe size={19} />
             </button>
             <button
               onClick={toggleBigFont}
               title={t('Katta shrift rejimi', 'Режим крупного шрифта')}
+              aria-label={t('Katta shrift rejimi', 'Режим крупного шрифта')}
               aria-pressed={bigFont}
               style={{
-                display: 'inline-flex', alignItems: 'center', gap: 7,
-                padding: '9px 13px', borderRadius: 24, cursor: 'pointer',
-                fontFamily: SANS, fontSize: 13.5, fontWeight: 700,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 42, height: 42, borderRadius: 21, cursor: 'pointer',
                 background: bigFont ? C.gold : C.white,
                 color: bigFont ? C.tealDeep : C.teal,
                 border: `1.5px solid ${bigFont ? C.gold : C.line}`,
                 boxShadow: '0 3px 10px rgba(27,48,56,0.18)',
               }}
             >
-              <Type size={17} /> {bigFont ? t('Odatiy shrift', 'Обычный шрифт') : t('Katta shrift', 'Крупный шрифт')}
+              <Type size={19} />
             </button>
           </div>
         </div>
