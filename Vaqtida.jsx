@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useContext, createContext } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useContext, createContext, useId } from 'react';
 import {
   Stethoscope, User, UserPlus, Pill, Bell, BellOff, Check, AlertTriangle,
   Trash2, Pencil, Plus, ArrowLeft, LogOut, Copy, X, ChevronRight, Clock,
@@ -64,6 +64,40 @@ const CODE_LEN = 8;
 const genCode = () => Array.from({ length: CODE_LEN }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
 const CODE_RE = new RegExp(`^[A-Z0-9]{${CODE_LEN}}$`);
 const cleanCodeInput = (v) => v.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, CODE_LEN);
+
+/* Tez-tez uchraydigan tashxislar — tashxis maydonida tayyor tavsiya
+   sifatida ko'rsatiladi (erkin matn kiritish imkoniyati saqlanadi). */
+const COMMON_DIAGNOSES = [
+  { uz: 'Gipertoniya I daraja', ru: 'Гипертония I степени' },
+  { uz: 'Gipertoniya II daraja', ru: 'Гипертония II степени' },
+  { uz: 'Gipertoniya III daraja', ru: 'Гипертония III степени' },
+  { uz: 'Yurak ishemik kasalligi', ru: 'Ишемическая болезнь сердца' },
+  { uz: 'Aritmiya (yurak ritmi buzilishi)', ru: 'Аритмия (нарушение ритма сердца)' },
+  { uz: 'Surunkali yurak yetishmovchiligi', ru: 'Хроническая сердечная недостаточность' },
+  { uz: "Insultdan keyingi holat", ru: 'Состояние после инсульта' },
+  { uz: 'Qandli diabet 1-turi', ru: 'Сахарный диабет 1 типа' },
+  { uz: 'Qandli diabet 2-turi', ru: 'Сахарный диабет 2 типа' },
+  { uz: 'Gipotireoz', ru: 'Гипотиреоз' },
+  { uz: 'Gipertireoz', ru: 'Гипертиреоз' },
+  { uz: 'Bronxial astma', ru: 'Бронхиальная астма' },
+  { uz: "Surunkali obstruktiv o'pka kasalligi", ru: 'Хроническая обструктивная болезнь лёгких' },
+  { uz: 'Surunkali buyrak yetishmovchiligi', ru: 'Хроническая почечная недостаточность' },
+  { uz: 'Pielonefrit', ru: 'Пиелонефрит' },
+  { uz: 'Gastrit', ru: 'Гастрит' },
+  { uz: 'Oshqozon yarasi', ru: 'Язва желудка' },
+  { uz: '12 barmoq ichak yarasi', ru: 'Язва двенадцатиперстной кишки' },
+  { uz: 'Osteoartroz', ru: 'Остеоартроз' },
+  { uz: 'Osteoporoz', ru: 'Остеопороз' },
+  { uz: 'Revmatoid artrit', ru: 'Ревматоидный артрит' },
+  { uz: 'Podagra', ru: 'Подагра' },
+  { uz: 'Epilepsiya', ru: 'Эпилепсия' },
+  { uz: 'Migren', ru: 'Мигрень' },
+  { uz: 'Parkinson kasalligi', ru: 'Болезнь Паркинсона' },
+  { uz: 'Depressiya', ru: 'Депрессия' },
+  { uz: 'Anksiyete buzilishi', ru: 'Тревожное расстройство' },
+  { uz: 'Glaukoma', ru: 'Глаукома' },
+  { uz: 'Anemiya', ru: 'Анемия' },
+];
 
 /* Bemor kirish sahifasiga to'g'ridan-to'g'ri (kod oldindan to'ldirilgan
    holda) olib boradigan havola — QR-kod shu havolani kodlaydi. */
@@ -159,6 +193,30 @@ function Field({ label, hint, children }) {
       {children}
       {hint && <div style={{ fontFamily: SANS, fontSize: 12.5, color: C.inkSoft, marginTop: 5 }}>{hint}</div>}
     </label>
+  );
+}
+
+/* Tashxis maydoni — tayyor tashxislar ro'yxati tavsiya sifatida
+   ko'rsatiladi (datalist), lekin xohlagan matnni yozish ham mumkin. */
+function DiagnosisField({ label, value, onChange }) {
+  const t = useT();
+  const lang = useContext(LangContext);
+  const listId = useId();
+  return (
+    <Field label={label}>
+      <input
+        style={inputStyle}
+        list={listId}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={t('Masalan: Gipertoniya II daraja', 'Например: Гипертония II степени')}
+      />
+      <datalist id={listId}>
+        {COMMON_DIAGNOSES.map((d) => (
+          <option key={d.uz} value={lang === 'ru' ? d.ru : d.uz} />
+        ))}
+      </datalist>
+    </Field>
   );
 }
 
@@ -1874,9 +1932,7 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
           <Field label={t('Bemor ismi', 'Имя пациента')}>
             <input style={inputStyle} value={name} onChange={(e) => setName(e.target.value)} placeholder={t('Masalan: Karimova Dilnoza', 'Например: Каримова Дилноза')} />
           </Field>
-          <Field label={t('Tashxis', 'Диагноз')}>
-            <input style={inputStyle} value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} placeholder={t('Masalan: Gipertoniya II daraja', 'Например: Гипертония II степени')} />
-          </Field>
+          <DiagnosisField label={t('Tashxis', 'Диагноз')} value={diagnosis} onChange={setDiagnosis} />
           <div style={{ display: 'flex', gap: 10 }}>
             <div style={{ flex: 1.4 }}>
               <Field label={t('Telefon', 'Телефон')} hint={t('Kirishda kod bilan birga so\'raladi', 'Понадобится вместе с кодом при входе')}>
@@ -2362,9 +2418,7 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
             <Field label={t('Bemor ismi', 'Имя пациента')}>
               <input style={inputStyle} value={eName} onChange={(e) => setEName(e.target.value)} placeholder={t('Ism familiya', 'Имя и фамилия')} />
             </Field>
-            <Field label={t('Tashxis', 'Диагноз')}>
-              <input style={inputStyle} value={eDx} onChange={(e) => setEDx(e.target.value)} placeholder={t('Tashxis', 'Диагноз')} />
-            </Field>
+            <DiagnosisField label={t('Tashxis', 'Диагноз')} value={eDx} onChange={setEDx} />
             <div style={{ display: 'flex', gap: 10 }}>
               <div style={{ flex: 1.4 }}>
                 <Field label={t('Telefon', 'Телефон')} hint={t('Ixtiyoriy', 'Необязательно')}>
@@ -2712,6 +2766,16 @@ function QuickRxForm({ onCancel, onSave }) {
   const t = useT();
   const [names, setNames] = useState(['']);
   const [err, setErr] = useState(null);
+  const inputsRef = useRef([]);
+  const prevLen = useRef(names.length);
+
+  // Yangi (Enter yoki "Yana dori" bilan qo'shilgan) qatorga avtomatik
+  // fokus — shifokor sichqonchasiz, ketma-ket Enter bosib bir nechta
+  // dorini tez kiritishi uchun.
+  useEffect(() => {
+    if (names.length > prevLen.current) inputsRef.current[names.length - 1]?.focus();
+    prevLen.current = names.length;
+  }, [names.length]);
 
   const setName = (i, v) => setNames((ns) => ns.map((n, j) => (j === i ? v : n)));
   const addRow = () => setNames((ns) => [...ns, '']);
@@ -2738,11 +2802,18 @@ function QuickRxForm({ onCancel, onSave }) {
         {names.map((n, i) => (
           <div key={i} style={{ display: 'flex', gap: 8 }}>
             <input
+              ref={(el) => { inputsRef.current[i] = el; }}
               style={{ ...inputStyle, flex: 1 }}
               value={n}
               onChange={(e) => setName(i, e.target.value)}
               placeholder="Masalan: Enalapril"
-              onKeyDown={(e) => e.key === 'Enter' && addRow()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (i === names.length - 1) addRow();
+                  else inputsRef.current[i + 1]?.focus();
+                }
+              }}
             />
             <button onClick={() => removeRow(i)} disabled={names.length <= 1} style={{ ...iconBtn, width: 46, opacity: names.length <= 1 ? 0.4 : 1 }}>
               <Trash2 size={16} />
