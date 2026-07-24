@@ -2163,6 +2163,131 @@ function WeeklyHistory({ code, refreshKey }) {
   );
 }
 
+/* Retsept va so'nggi 7 kunlik tarixni chop etish/PDF sifatida yuklab
+   olish uchun ko'rinish. Yangi kutubxona qo'shmasdan — brauzerning o'z
+   "Chop etish" oynasi (u yerda "PDF sifatida saqlash" ham bor) orqali
+   ishlaydi. @media print qoidalari faqat shu ko'rinishni qoldirib,
+   qolgan ilova interfeysini chop etishdan yashiradi. */
+function PrescriptionPrintView({ patient, rx, doctors, code, onClose }) {
+  const t = useT();
+  const lang = useContext(LangContext);
+  const [week, setWeek] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    computeWeek(code).then((w) => { if (!cancelled) setWeek(w); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [code]);
+
+  const meds = rx.medicines || [];
+  const WD = t('Ya,Du,Se,Ch,Pa,Ju,Sh', 'Вс,Пн,Вт,Ср,Чт,Пт,Сб').split(',');
+  const printedAt = new Date().toLocaleString(lang === 'ru' ? 'ru-RU' : 'uz-UZ');
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 90, background: C.white, overflowY: 'auto' }}>
+      <style>{`
+        @media print {
+          body * { visibility: hidden; }
+          #vaqtida-print-area, #vaqtida-print-area * { visibility: visible; }
+          #vaqtida-print-area { position: absolute; left: 0; top: 0; width: 100%; padding: 0; }
+          .vaqtida-no-print { display: none !important; }
+        }
+      `}</style>
+      <div className="vaqtida-no-print" style={{ position: 'sticky', top: 0, background: C.paper, padding: 16, display: 'flex', gap: 10, borderBottom: `1px solid ${C.line}`, zIndex: 1 }}>
+        <Btn variant="ghost" onClick={onClose} style={{ flex: 1 }}>
+          <ArrowLeft size={18} /> {t('Orqaga', 'Назад')}
+        </Btn>
+        <Btn variant="primary" onClick={() => window.print()} style={{ flex: 1 }}>
+          <Download size={18} /> {t('Chop etish / PDF', 'Печать / PDF')}
+        </Btn>
+      </div>
+
+      <div id="vaqtida-print-area" style={{ maxWidth: 640, margin: '0 auto', padding: 24, color: '#111', fontFamily: SANS }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+          <Pill size={22} color={C.tealDeep} />
+          <div style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700, color: C.tealDeep }}>Vaqtida — {t('Retsept', 'Рецепт')}</div>
+        </div>
+        <div style={{ fontSize: 12, color: '#555', marginBottom: 18 }}>{t('Chop etilgan', 'Распечатано')}: {printedAt}</div>
+
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 20, fontSize: 13.5 }}>
+          <tbody>
+            <tr><td style={{ padding: '3px 0', color: '#555', width: 140 }}>{t('Bemor', 'Пациент')}</td><td style={{ padding: '3px 0', fontWeight: 700 }}>{patient.name}</td></tr>
+            <tr><td style={{ padding: '3px 0', color: '#555' }}>{t('Kod', 'Код')}</td><td style={{ padding: '3px 0' }}>{patient.code}</td></tr>
+            <tr><td style={{ padding: '3px 0', color: '#555' }}>{t('Tashxis', 'Диагноз')}</td><td style={{ padding: '3px 0' }}>{patient.diagnosis}</td></tr>
+            {patient.birthYear && (
+              <tr><td style={{ padding: '3px 0', color: '#555' }}>{t("Tug'ilgan yil", 'Год рождения')}</td><td style={{ padding: '3px 0' }}>{patient.birthYear}</td></tr>
+            )}
+            {doctors.length > 0 && (
+              <tr>
+                <td style={{ padding: '3px 0', color: '#555', verticalAlign: 'top' }}>{t('Tayinlagan', 'Назначил')}</td>
+                <td style={{ padding: '3px 0' }}>
+                  {doctors.map((d, i) => (
+                    <div key={d.doctorId || i}>{d.fullName}{d.licenseNumber ? ` (${t('litsenziya', 'лицензия')}: ${d.licenseNumber})` : ''}</div>
+                  ))}
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+
+        <div style={{ fontFamily: SERIF, fontSize: 17, fontWeight: 700, color: C.tealDeep, marginBottom: 8 }}>{t('Dorilar', 'Лекарства')}</div>
+        {meds.length === 0 ? (
+          <div style={{ fontSize: 13.5, color: '#555', marginBottom: 20 }}>{t('Tayinlangan dori yo\'q.', 'Лекарства не назначены.')}</div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 20, fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: '1.5px solid #333' }}>
+                <th style={{ textAlign: 'left', padding: '5px 6px 5px 0' }}>{t('Nomi', 'Название')}</th>
+                <th style={{ textAlign: 'left', padding: '5px 6px' }}>{t('Dozasi', 'Доза')}</th>
+                <th style={{ textAlign: 'left', padding: '5px 6px' }}>{t('Vaqtlar', 'Время')}</th>
+                <th style={{ textAlign: 'left', padding: '5px 6px' }}>{t('Muddat', 'Срок')}</th>
+                <th style={{ textAlign: 'left', padding: '5px 0 5px 6px' }}>{t("Ko'rsatma", 'Указания')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {meds.map((m) => (
+                <tr key={m.id} style={{ borderBottom: '1px solid #ddd' }}>
+                  <td style={{ padding: '6px 6px 6px 0', fontWeight: 600 }}>{m.name}</td>
+                  <td style={{ padding: '6px' }}>{m.dosage || '—'}</td>
+                  <td style={{ padding: '6px' }}>{(m.times || []).join(', ') || '—'}</td>
+                  <td style={{ padding: '6px' }}>{m.durationDays ? `${m.durationDays} ${t('kun', 'дн.')}` : t('Doimiy', 'Постоянно')}</td>
+                  <td style={{ padding: '6px 0 6px 6px' }}>{m.instructions || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        <div style={{ fontFamily: SERIF, fontSize: 17, fontWeight: 700, color: C.tealDeep, marginBottom: 8 }}>{t("So'nggi 7 kun", 'Последние 7 дней')}</div>
+        {week === null ? (
+          <div style={{ fontSize: 13.5, color: '#555' }}>{t('Yuklanmoqda…', 'Загрузка…')}</div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: '1.5px solid #333' }}>
+                {week.days.map((d) => (
+                  <th key={d.date} style={{ textAlign: 'center', padding: '5px 4px' }}>{WD[d.dow]}<br /><span style={{ fontWeight: 400, fontSize: 11 }}>{d.date.slice(5)}</span></th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                {week.days.map((d) => (
+                  <td key={d.date} style={{ textAlign: 'center', padding: '6px 4px' }}>{d.status === 'none' ? '—' : `${d.taken}/${d.total}`}</td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        )}
+
+        <div style={{ marginTop: 28, fontSize: 11, color: '#888', borderTop: '1px solid #ddd', paddingTop: 10 }}>
+          {t('Vaqtida ilovasi orqali yaratilgan. Bu hujjat tibbiy maslahat o\'rnini bosmaydi.', 'Создано через приложение Vaqtida. Этот документ не заменяет медицинскую консультацию.')}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* Bemor va shifokor o'rtasidagi oddiy xabar almashinuvi — real vaqtli
    chat emas, har ikki tomon ilovani ochganda ko'radi (real-time
    obuna orqali tezroq yangilanadi). Bemorga ulangan BARCHA shifokorlar
@@ -2299,6 +2424,7 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
   const [showQr, setShowQr] = useState(false);
   const [otherDoctors, setOtherDoctors] = useState([]);
   const [flagged, setFlagged] = useState(false);
+  const [showPrint, setShowPrint] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -2607,24 +2733,42 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
         {/* Retsept */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <SectionTitle icon={<ClipboardList size={18} color={C.teal} />}>{t('Retsept', 'Рецепт')}</SectionTitle>
-          <button
-            onClick={async () => {
-              const opening = !showAudit;
-              setShowAudit(opening);
-              if (opening) {
-                // Har safar ochilganda qaytadan yuklaymiz — audit yozuvi
-                // retsept saqlangandan bir zum keyin serverga tushishi mumkin,
-                // shuning uchun eski (keshlangan) natijani ko'rsatmaymiz.
-                setAudit(null);
-                try { setAudit((await store.get(`audit:${code}`, true)) || []); }
-                catch (e) { onError(t("O'zgarishlar tarixini yuklab bo'lmadi.", 'Не удалось загрузить историю изменений.')); setAudit([]); }
-              }
-            }}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.teal, display: 'flex', alignItems: 'center', gap: 5, fontFamily: SANS, fontSize: 13, fontWeight: 600 }}
-          >
-            <History size={15} /> {t('Tarix', 'История')}
-          </button>
+          <div style={{ display: 'flex', gap: 14 }}>
+            <button
+              onClick={() => setShowPrint(true)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.teal, display: 'flex', alignItems: 'center', gap: 5, fontFamily: SANS, fontSize: 13, fontWeight: 600 }}
+            >
+              <Download size={15} /> {t('PDF', 'PDF')}
+            </button>
+            <button
+              onClick={async () => {
+                const opening = !showAudit;
+                setShowAudit(opening);
+                if (opening) {
+                  // Har safar ochilganda qaytadan yuklaymiz — audit yozuvi
+                  // retsept saqlangandan bir zum keyin serverga tushishi mumkin,
+                  // shuning uchun eski (keshlangan) natijani ko'rsatmaymiz.
+                  setAudit(null);
+                  try { setAudit((await store.get(`audit:${code}`, true)) || []); }
+                  catch (e) { onError(t("O'zgarishlar tarixini yuklab bo'lmadi.", 'Не удалось загрузить историю изменений.')); setAudit([]); }
+                }
+              }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: C.teal, display: 'flex', alignItems: 'center', gap: 5, fontFamily: SANS, fontSize: 13, fontWeight: 600 }}
+            >
+              <History size={15} /> {t('Tarix', 'История')}
+            </button>
+          </div>
         </div>
+
+        {showPrint && (
+          <PrescriptionPrintView
+            patient={patient}
+            rx={rx}
+            code={code}
+            doctors={[...otherDoctors, { doctorId, fullName: doctorProfile?.fullName, licenseNumber: doctorProfile?.licenseNumber }]}
+            onClose={() => setShowPrint(false)}
+          />
+        )}
 
         {showAudit && (
           <Card style={{ marginBottom: 10, background: C.paperSoft }}>
@@ -3261,6 +3405,7 @@ function PatientApp({ code, onLogout, onError }) {
   const [doctors, setDoctors] = useState([]);
   const [tab, setTab] = useState('today'); // today | history | info
   const [remindersOn, setRemindersOn] = useState(true);
+  const [showPrint, setShowPrint] = useState(false);
 
   const audioRef = useRef(null);
   const beepedRef = useRef(new Set()); // qaytariqni oldini olish uchun
@@ -3652,6 +3797,13 @@ function PatientApp({ code, onLogout, onError }) {
                 </div>
               )}
             </Card>
+
+            <Btn variant="ghost" full onClick={() => setShowPrint(true)} style={{ marginBottom: 4 }}>
+              <Download size={18} /> {t('Retseptni yuklab olish / chop etish', 'Скачать / распечатать рецепт')}
+            </Btn>
+            {showPrint && (
+              <PrescriptionPrintView patient={patient} rx={rx} code={code} doctors={doctors} onClose={() => setShowPrint(false)} />
+            )}
 
             {/* Bildirishnoma boshqaruvi */}
             <SectionTitle icon={<Bell size={18} color={C.teal} />}>{t('Eslatmalar', 'Напоминания')}</SectionTitle>
