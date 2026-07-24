@@ -4,7 +4,7 @@ import {
   Trash2, Pencil, Plus, ArrowLeft, LogOut, Copy, X, ChevronRight, Clock,
   Users, ClipboardList, CalendarClock, Info, ShieldAlert, Files, Lock, Mail, CalendarDays, Phone, Type, Download,
   Store, Search, BadgeCheck, XCircle, IdCard, History, KeyRound, ShieldCheck, RefreshCw, Globe, WifiOff, Link2, QrCode, Ban, HelpCircle,
-  Send, MessageCircle,
+  Send, MessageCircle, Moon, Sun,
 } from 'lucide-react';
 import { store, hasBackend, auth, adminCreateDoctor, adminListDoctors, adminResetDoctorPassword, adminSetDoctorBlocked, adminGetStats, offlineQueue, notifyNewMessage } from './db.js';
 import { pushSupported, subscribeToPush, unsubscribeFromPush, getPushState } from './push.js';
@@ -26,8 +26,17 @@ import QRCode from 'qrcode';
      - Dorixona bilan integratsiya
    ========================================================================= */
 
-/* ------------------------------ Palitra ------------------------------ */
-const C = {
+/* ------------------------------ Palitra (yorug'/tungi) ------------------------------
+   "C" — mutatsiya qilinadigan obyekt (butun ilova shu orqali C.xxx deb
+   o'qiydi). Tungi rejim yoqilganda applyTheme(true) DARK qiymatlarini
+   C ustiga nusxalaydi — App() render boshida chaqiriladi, shu sabab
+   barcha bola komponentlar YANGI qiymatlarni ko'radi (App() qayta
+   chizilganda butun daraxt ham qayta chiziladi).
+   "onAccentLight/onAccentDark" — teal/gold/sage/red kabi to'yingan fon
+   ustidagi matn uchun DOIM barqaror (mavzudan qat'i nazar) ranglar —
+   aks holda masalan "paper" tungi rejimda qorong'i bo'lib qolganda
+   teal tugmadagi matn o'qib bo'lmas holga kelardi. */
+const LIGHT_THEME = {
   tealDeep: '#1B3038',
   teal: '#23414A',
   paper: '#F5F2EA',
@@ -39,7 +48,36 @@ const C = {
   inkSoft: '#5B6B70',
   line: '#DAD3C4',
   white: '#FFFFFF',
+  tealTint: '#E9F0F1', tealTintBorder: '#BFD3D6',
+  goldTint: '#FBF1D6', goldTintFg: '#7A5A12', cardAccent: '#FFFDF7',
+  redTint: '#F7E2DF', redTintFg: '#7E2F27', redTintSoft: '#FBF3F2', redBorder: '#E7C6C1',
+  sageTint: '#E7F0E3', sageTintFg: '#3E5637',
+  neutralTint: '#EFEAE0', neutralTintFg: '#6B5B3E',
+  onAccentLight: '#F5F2EA', onAccentDark: '#1B3038',
 };
+const DARK_THEME = {
+  tealDeep: '#EAF1F2',
+  teal: '#6FA6B0',
+  paper: '#141C1F',
+  paperSoft: '#1E2A2D',
+  gold: '#E8B84B',
+  sage: '#8FBF86',
+  red: '#E38879',
+  ink: '#E7E3D9',
+  inkSoft: '#9BA6A9',
+  line: '#32403F',
+  white: '#202C2F',
+  tealTint: '#1B2E33', tealTintBorder: '#2E4850',
+  goldTint: '#3A2F14', goldTintFg: '#F0C97A', cardAccent: '#241C10',
+  redTint: '#3A2320', redTintFg: '#F2A99B', redTintSoft: '#2A1A18', redBorder: '#5C332E',
+  sageTint: '#1E2E1C', sageTintFg: '#A8D19E',
+  neutralTint: '#2A251C', neutralTintFg: '#C2A876',
+  onAccentLight: '#F5F2EA', onAccentDark: '#1B3038',
+};
+const C = { ...LIGHT_THEME };
+function applyTheme(dark) {
+  Object.assign(C, dark ? DARK_THEME : LIGHT_THEME);
+}
 const SERIF = "'Fraunces', Georgia, serif";
 const SANS = "'IBM Plex Sans', system-ui, -apple-system, sans-serif";
 
@@ -123,6 +161,26 @@ const medActiveOn = (med, ds) => {
 const medEndDate = (med) =>
   med.durationDays ? addDays(med.startDate, Number(med.durationDays) - 1) : null;
 
+/* Dori zaxirasi (taxminiy): shifokor bergan boshlang'ich miqdordan kunlik
+   reja bo'yicha (kuniga necha marta qabul qilinishi) qancha ishlatilgan
+   deb HISOBLANADI — haqiqiy belgilashlarni (log) kuzatib bormaydi, faqat
+   sana asosida taxmin qiladi. Bu ataylab shunday: aniq inventar emas,
+   shunchaki "tugab qolmasin" ogohlantirish uchun yetarli va hech qanday
+   qo'shimcha yozuv/sinxronizatsiya talab qilmaydi. */
+const medStockRemaining = (med, ds) => {
+  if (!med.stockQty || !med.stockSetAt) return null;
+  const dosesPerDay = (med.times || []).length || 1;
+  const daysSince = Math.round((new Date(ds + 'T00:00:00') - new Date(med.stockSetAt + 'T00:00:00')) / 86400000);
+  const used = Math.max(0, daysSince) * dosesPerDay;
+  return Math.max(0, med.stockQty - used);
+};
+const medStockDaysLeft = (med, ds) => {
+  const remaining = medStockRemaining(med, ds);
+  if (remaining === null) return null;
+  const dosesPerDay = (med.times || []).length || 1;
+  return Math.floor(remaining / dosesPerDay);
+};
+
 /* Bitta dozaning holati: taken | upcoming | due | missed */
 const doseStatus = (ds, hhmm, taken, now) => {
   if (taken) return 'taken';
@@ -178,10 +236,10 @@ function Btn({ children, onClick, variant = 'primary', style, disabled, type = '
     transition: 'transform .05s ease',
   };
   const variants = {
-    primary: { background: C.teal, color: C.paper },
-    gold: { background: C.gold, color: C.tealDeep },
-    sage: { background: C.sage, color: C.white },
-    danger: { background: C.red, color: C.white },
+    primary: { background: C.teal, color: C.onAccentLight },
+    gold: { background: C.gold, color: C.onAccentDark },
+    sage: { background: C.sage, color: C.onAccentLight },
+    danger: { background: C.red, color: C.onAccentLight },
     ghost: { background: 'transparent', color: C.teal, border: `1.5px solid ${C.line}` },
     quiet: { background: C.paperSoft, color: C.ink },
   };
@@ -226,6 +284,10 @@ function DiagnosisField({ label, value, onChange }) {
   );
 }
 
+/* Diqqat: bu obyekt module darajasida BIR MARTA yaratiladi, lekin
+   "C" tungi rejimda mutatsiya qilinadi — shu sabab rang xususiyatlari
+   GETTER sifatida yozilgan (har safar o'qilganda joriy C qiymatini
+   qaytaradi), oddiy statik qiymat emas. */
 const inputStyle = {
   width: '100%',
   boxSizing: 'border-box',
@@ -233,9 +295,9 @@ const inputStyle = {
   fontSize: 16,
   padding: '12px 14px',
   borderRadius: 10,
-  border: `1.5px solid ${C.line}`,
-  background: C.white,
-  color: C.ink,
+  get border() { return `1.5px solid ${C.line}`; },
+  get background() { return C.white; },
+  get color() { return C.ink; },
   outline: 'none',
 };
 
@@ -284,10 +346,10 @@ function SectionTitle({ children, icon }) {
 /* Banner: type = info | warn | error | success */
 function Banner({ type = 'info', title, children, onClose, icon }) {
   const map = {
-    info: { bg: '#E9F0F1', bd: '#BFD3D6', fg: C.teal },
-    warn: { bg: '#FBF1D6', bd: C.gold, fg: '#7A5A12' },
-    error: { bg: '#F7E2DF', bd: C.red, fg: '#7E2F27' },
-    success: { bg: '#E7F0E3', bd: C.sage, fg: '#3E5637' },
+    info: { bg: C.tealTint, bd: C.tealTintBorder, fg: C.teal },
+    warn: { bg: C.goldTint, bd: C.gold, fg: C.goldTintFg },
+    error: { bg: C.redTint, bd: C.red, fg: C.redTintFg },
+    success: { bg: C.sageTint, bd: C.sage, fg: C.sageTintFg },
   };
   const s = map[type];
   return (
@@ -443,10 +505,16 @@ export default function App() {
   const [doctorProfile, setDoctorProfile] = useState(undefined);
   const [bigFont, setBigFont] = useState(false);
   const [lang, setLang] = useState('uz');
+  const [darkMode, setDarkMode] = useState(false);
   const isAdminRoute = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('admin') === '1';
   const urlCodeRaw = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('code') : null;
   const urlCode = urlCodeRaw && CODE_RE.test(urlCodeRaw.toUpperCase()) ? urlCodeRaw.toUpperCase() : null;
   const t = (uz, ru) => translate(lang, uz, ru);
+
+  // "C" palitrasini joriy render'dan OLDIN yangilaymiz — shu sabab
+  // butun bola daraxti (App() qayta chizilganda) darhol yangi ranglarni
+  // ko'radi, alohida Context/prop uzatish shart emas.
+  applyTheme(darkMode);
 
   const reportError = useCallback((msg) => setGlobalError(msg), []);
 
@@ -462,6 +530,14 @@ export default function App() {
     setLang((v) => {
       const next = v === 'uz' ? 'ru' : 'uz';
       store.set('lang', next, false).catch(() => {});
+      return next;
+    });
+  };
+
+  const toggleDarkMode = () => {
+    setDarkMode((v) => {
+      const next = !v;
+      store.set('darkMode', next, false).catch(() => {});
       return next;
     });
   };
@@ -501,6 +577,8 @@ export default function App() {
         if (bf) setBigFont(true);
         const l = await store.get('lang', false);
         if (l === 'ru') setLang('ru');
+        const dm = await store.get('darkMode', false);
+        if (dm) setDarkMode(true);
       } catch (e) {
         reportError("Sozlamalarni o'qishda xatolik yuz berdi. Sahifani yangilab ko'ring.");
       } finally {
@@ -533,7 +611,10 @@ export default function App() {
       <div
         style={{
           minHeight: '100vh',
-          background: `radial-gradient(120% 60% at 50% 0%, ${C.teal} 0%, ${C.tealDeep} 70%)`,
+          // Ilova kartasi atrofidagi bezak foni — mavzudan qat'i nazar
+          // doim boy to'q ko'k-yashil rangda qoladi (LIGHT_THEME'ning
+          // asl qiymatlaridan, tungi rejimda ham o'zgarmasligi uchun).
+          background: `radial-gradient(120% 60% at 50% 0%, ${LIGHT_THEME.teal} 0%, ${LIGHT_THEME.tealDeep} 70%)`,
           display: 'flex',
           justifyContent: 'center',
           fontFamily: SANS,
@@ -586,12 +667,28 @@ export default function App() {
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 width: 42, height: 42, borderRadius: 21, cursor: 'pointer',
                 background: bigFont ? C.gold : C.white,
-                color: bigFont ? C.tealDeep : C.teal,
+                color: bigFont ? C.onAccentDark : C.teal,
                 border: `1.5px solid ${bigFont ? C.gold : C.line}`,
                 boxShadow: '0 3px 10px rgba(27,48,56,0.18)',
               }}
             >
               <Type size={19} />
+            </button>
+            <button
+              onClick={toggleDarkMode}
+              title={t('Tungi rejim', 'Тёмная тема')}
+              aria-label={t('Tungi rejim', 'Тёмная тема')}
+              aria-pressed={darkMode}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 42, height: 42, borderRadius: 21, cursor: 'pointer',
+                background: darkMode ? C.teal : C.white,
+                color: darkMode ? C.onAccentLight : C.teal,
+                border: `1.5px solid ${darkMode ? C.teal : C.line}`,
+                boxShadow: '0 3px 10px rgba(27,48,56,0.18)',
+              }}
+            >
+              {darkMode ? <Sun size={19} /> : <Moon size={19} />}
             </button>
           </div>
         </div>
@@ -693,7 +790,7 @@ function RoleSelect({ onPick }) {
 
       <div style={{ display: 'grid', gap: 14 }}>
         <Card onClick={() => onPick('doctor')} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: 18 }}>
-          <div style={{ width: 52, height: 52, borderRadius: 14, background: '#E9F0F1', color: C.teal, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 52, height: 52, borderRadius: 14, background: C.tealTint, color: C.teal, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Stethoscope size={26} />
           </div>
           <div style={{ flex: 1 }}>
@@ -704,7 +801,7 @@ function RoleSelect({ onPick }) {
         </Card>
 
         <Card onClick={() => onPick('patient')} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: 18 }}>
-          <div style={{ width: 52, height: 52, borderRadius: 14, background: '#FBF1D6', color: '#7A5A12', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 52, height: 52, borderRadius: 14, background: C.goldTint, color: C.goldTintFg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <User size={26} />
           </div>
           <div style={{ flex: 1 }}>
@@ -715,7 +812,7 @@ function RoleSelect({ onPick }) {
         </Card>
 
         <Card onClick={() => onPick('pharmacy')} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: 18 }}>
-          <div style={{ width: 52, height: 52, borderRadius: 14, background: '#EFEAE0', color: '#6B5B3E', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 52, height: 52, borderRadius: 14, background: C.neutralTint, color: C.neutralTintFg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Store size={26} />
           </div>
           <div style={{ flex: 1 }}>
@@ -738,7 +835,9 @@ function RoleSelect({ onPick }) {
 }
 const legalLinkStyle = {
   background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-  fontFamily: SANS, fontSize: 12.5, color: C.inkSoft, textDecoration: 'underline',
+  fontFamily: SANS, fontSize: 12.5,
+  get color() { return C.inkSoft; },
+  textDecoration: 'underline',
 };
 
 /* Maxfiylik siyosati va Foydalanish shartlari matni — ikkalasi ham shu
@@ -901,10 +1000,17 @@ function LegalDocument({ doc, onSwitch, onBack, overlay }) {
   );
 }
 const tabBtnStyle = {
-  flex: 1, padding: '9px 10px', borderRadius: 10, border: `1.5px solid ${C.line}`,
-  background: C.white, color: C.inkSoft, fontFamily: SANS, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+  flex: 1, padding: '9px 10px', borderRadius: 10,
+  get border() { return `1.5px solid ${C.line}`; },
+  get background() { return C.white; },
+  get color() { return C.inkSoft; },
+  fontFamily: SANS, fontSize: 13, fontWeight: 600, cursor: 'pointer',
 };
-const tabBtnActive = { background: C.teal, color: C.paper, border: `1.5px solid ${C.teal}` };
+const tabBtnActive = {
+  get background() { return C.teal; },
+  get color() { return C.onAccentLight; },
+  get border() { return `1.5px solid ${C.teal}`; },
+};
 
 /* Bir martalik majburiy rozilik ekrani — shifokor (profil to'ldirilgach)
    va bemor (birinchi marta kirganda) uchun ishlatiladi. Rozilik vaqti
@@ -929,7 +1035,7 @@ function ConsentScreen({ onAgree, onError, busy: externalBusy }) {
 
   return (
     <div style={{ padding: '40px 24px' }}>
-      <div style={{ width: 60, height: 60, borderRadius: 16, background: '#E9F0F1', color: C.teal, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+      <div style={{ width: 60, height: 60, borderRadius: 16, background: C.tealTint, color: C.teal, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
         <ShieldCheck size={30} />
       </div>
       <h1 style={{ fontFamily: SERIF, fontSize: 26, color: C.tealDeep, margin: '0 0 6px', fontWeight: 600 }}>
@@ -1075,7 +1181,7 @@ function AdminCreateDoctor({ onBack, onError }) {
         <ArrowLeft size={20} />
       </button>
 
-      <div style={{ width: 60, height: 60, borderRadius: 16, background: '#EFEAE0', color: '#6B5B3E', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+      <div style={{ width: 60, height: 60, borderRadius: 16, background: C.neutralTint, color: C.neutralTintFg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
         <ShieldCheck size={30} />
       </div>
       <h1 style={{ fontFamily: SERIF, fontSize: 26, color: C.tealDeep, margin: '0 0 6px', fontWeight: 600 }}>
@@ -1208,7 +1314,7 @@ function AdminCreateDoctor({ onBack, onError }) {
         ) : (
           <div style={{ display: 'grid', gap: 10 }}>
             {doctors.map((doc) => (
-              <Card key={doc.uid} style={doc.blocked ? { border: `1.5px solid ${C.red}`, background: '#FBF3F2' } : undefined}>
+              <Card key={doc.uid} style={doc.blocked ? { border: `1.5px solid ${C.red}`, background: C.redTintSoft } : undefined}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontFamily: SANS, fontSize: 15.5, fontWeight: 700, color: C.ink }}>{doc.fullName || '—'}</div>
@@ -1220,8 +1326,8 @@ function AdminCreateDoctor({ onBack, onError }) {
                       style={{
                         display: 'inline-block', marginTop: 6, fontFamily: SANS, fontSize: 11.5, fontWeight: 700,
                         padding: '3px 9px', borderRadius: 20,
-                        color: doc.blocked ? '#7E2F27' : '#3E5637',
-                        background: doc.blocked ? '#F7E2DF' : '#E7F0E3',
+                        color: doc.blocked ? C.redTintFg : C.sageTintFg,
+                        background: doc.blocked ? C.redTint : C.sageTint,
                       }}
                     >
                       {doc.blocked ? t('Bloklangan', 'Заблокирован') : t('Faol', 'Активен')}
@@ -1290,7 +1396,7 @@ function DoctorAuth({ onBack }) {
         <ArrowLeft size={20} />
       </button>
 
-      <div style={{ width: 60, height: 60, borderRadius: 16, background: '#E9F0F1', color: C.teal, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+      <div style={{ width: 60, height: 60, borderRadius: 16, background: C.tealTint, color: C.teal, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
         <Stethoscope size={30} />
       </div>
       <h1 style={{ fontFamily: SERIF, fontSize: 28, color: C.tealDeep, margin: '0 0 6px', fontWeight: 600 }}>
@@ -1370,7 +1476,7 @@ function DoctorProfileSetup({ uid, email, onDone, onError }) {
 
   return (
     <div style={{ padding: '40px 24px' }}>
-      <div style={{ width: 60, height: 60, borderRadius: 16, background: '#E9F0F1', color: C.teal, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+      <div style={{ width: 60, height: 60, borderRadius: 16, background: C.tealTint, color: C.teal, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
         <IdCard size={30} />
       </div>
       <h1 style={{ fontFamily: SERIF, fontSize: 26, color: C.tealDeep, margin: '0 0 6px', fontWeight: 600 }}>{t("Profilni to'ldiring", 'Заполните профиль')}</h1>
@@ -1617,7 +1723,7 @@ function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 20,
                 border: `1.5px solid ${onlyDanger ? C.red : C.line}`,
-                background: onlyDanger ? '#F9E9E6' : C.white,
+                background: onlyDanger ? C.redTint : C.white,
                 color: onlyDanger ? C.red : C.inkSoft,
                 fontFamily: SANS, fontSize: 13, fontWeight: 600, cursor: 'pointer',
               }}
@@ -1762,6 +1868,8 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
   const [diagnosis, setDiagnosis] = useState('');
   const [phone, setPhone] = useState('');
   const [birthYear, setBirthYear] = useState('');
+  const [allergies, setAllergies] = useState('');
+  const [chronicConditions, setChronicConditions] = useState('');
   const [newCode, setNewCode] = useState(null);
   const [saving, setSaving] = useState(false);
   const [linkCode, setLinkCode] = useState('');
@@ -1802,6 +1910,8 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
         diagnosis: diagnosis.trim(),
         phone: phone.trim(),
         birthYear: birthYear ? Number(birthYear) : null,
+        allergies: allergies.trim(),
+        chronicConditions: chronicConditions.trim(),
         createdAt: Date.now(),
         doctorId,
         doctorName: doctorProfile?.fullName || null,
@@ -1820,6 +1930,8 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
       setDiagnosis('');
       setPhone('');
       setBirthYear('');
+      setAllergies('');
+      setChronicConditions('');
       onAdded();
     } catch (e) {
       onError(t("Bemorni saqlab bo'lmadi. Qaytadan urinib ko'ring.", 'Не удалось сохранить пациента. Попробуйте ещё раз.'));
@@ -1872,7 +1984,7 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
 
   if (linkedName) {
     return (
-      <Card style={{ background: C.sage, border: 'none', color: C.white }}>
+      <Card style={{ background: C.sage, border: 'none', color: C.onAccentLight }}>
         <div style={{ fontFamily: SANS, fontSize: 14, opacity: 0.9 }}>
           {t('Bemor ro\'yxatingizga ulandi:', 'Пациент добавлен в ваш список:')}
         </div>
@@ -1886,7 +1998,7 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
 
   if (newCode) {
     return (
-      <Card style={{ background: C.teal, border: 'none', color: C.paper }}>
+      <Card style={{ background: C.teal, border: 'none', color: C.onAccentLight }}>
         <div style={{ fontFamily: SANS, fontSize: 14, opacity: 0.85 }}>{t('Bemor qo\'shildi. Ushbu kodni bemorga bering:', 'Пациент добавлен. Передайте этот код пациенту:')}</div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '10px 0 6px' }}>
           <div style={{ fontFamily: SERIF, fontSize: 26, letterSpacing: 3, fontWeight: 700, color: C.gold }}>{newCode}</div>
@@ -1948,6 +2060,12 @@ function DoctorAddPatient({ doctorId, doctorProfile, onAdded, onError }) {
               </Field>
             </div>
           </div>
+          <Field label={t('Allergiyalar', 'Аллергии')} hint={t('Ixtiyoriy — dori/oziq-ovqat allergiyasi bo\'lsa', 'Необязательно — если есть аллергия на лекарства/еду')}>
+            <input style={inputStyle} value={allergies} onChange={(e) => setAllergies(e.target.value)} placeholder={t('Masalan: Penitsillin, yong\'oq', 'Например: Пенициллин, орехи')} />
+          </Field>
+          <Field label={t('Surunkali kasalliklar', 'Хронические заболевания')} hint={t('Ixtiyoriy — asosiy tashxisdan tashqari', 'Необязательно — помимо основного диагноза')}>
+            <input style={inputStyle} value={chronicConditions} onChange={(e) => setChronicConditions(e.target.value)} placeholder={t('Masalan: Qandli diabet, Astma', 'Например: Диабет, Астма')} />
+          </Field>
           <Btn variant="gold" full onClick={submit} disabled={saving}>
             {saving ? t('Saqlanmoqda…', 'Сохранение…') : t("Qo'shish va kod olish", 'Добавить и получить код')}
           </Btn>
@@ -2010,7 +2128,7 @@ function PatientRow({ patient, tick, onOpen, onError }) {
       <div
         style={{
           width: 46, height: 46, borderRadius: 12, flexShrink: 0,
-          background: danger ? '#F7E2DF' : '#E9F0F1', color: danger ? C.red : C.teal,
+          background: danger ? C.redTint : C.tealTint, color: danger ? C.red : C.teal,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}
       >
@@ -2140,7 +2258,7 @@ function WeeklyHistory({ code, refreshKey }) {
               style={{
                 height: 36, borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center',
                 background: colorFor(d.status),
-                color: d.status === 'none' ? C.inkSoft : d.status === 'partial' ? C.tealDeep : C.white,
+                color: d.status === 'none' ? C.inkSoft : d.status === 'partial' ? C.onAccentDark : C.onAccentLight,
                 border: d.isToday ? `2px solid ${C.tealDeep}` : `1px solid ${C.line}`,
                 fontFamily: SANS, fontSize: 11.5, fontWeight: 700,
               }}
@@ -2154,7 +2272,7 @@ function WeeklyHistory({ code, refreshKey }) {
         {!anyMeds ? (
           <span style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft }}>{t("So'nggi 7 kunda dori tayinlanmagan", 'За последние 7 дней лекарств не назначено')}</span>
         ) : data.streak > 0 ? (
-          <span style={{ fontFamily: SANS, fontSize: 14, color: '#3E5637', fontWeight: 700 }}>🔥 {t(`${data.streak} kun ketma-ket to'liq`, `${data.streak} дн. подряд полностью`)}</span>
+          <span style={{ fontFamily: SANS, fontSize: 14, color: C.sageTintFg, fontWeight: 700 }}>🔥 {t(`${data.streak} kun ketma-ket to'liq`, `${data.streak} дн. подряд полностью`)}</span>
         ) : (
           <span style={{ fontFamily: SANS, fontSize: 13.5, color: C.inkSoft }}>{t("Ketma-ketlik yo'q — bugun to'liq qabul qilib boshlang", 'Серии нет — начните сегодня с полного приёма')}</span>
         )}
@@ -2216,6 +2334,12 @@ function PrescriptionPrintView({ patient, rx, doctors, code, onClose }) {
             <tr><td style={{ padding: '3px 0', color: '#555' }}>{t('Tashxis', 'Диагноз')}</td><td style={{ padding: '3px 0' }}>{patient.diagnosis}</td></tr>
             {patient.birthYear && (
               <tr><td style={{ padding: '3px 0', color: '#555' }}>{t("Tug'ilgan yil", 'Год рождения')}</td><td style={{ padding: '3px 0' }}>{patient.birthYear}</td></tr>
+            )}
+            {patient.chronicConditions && (
+              <tr><td style={{ padding: '3px 0', color: '#555' }}>{t('Surunkali kasalliklar', 'Хронические заболевания')}</td><td style={{ padding: '3px 0' }}>{patient.chronicConditions}</td></tr>
+            )}
+            {patient.allergies && (
+              <tr><td style={{ padding: '3px 0', color: '#c4574a', fontWeight: 700 }}>{t('Allergiya', 'Аллергия')}</td><td style={{ padding: '3px 0', fontWeight: 700, color: '#c4574a' }}>{patient.allergies}</td></tr>
             )}
             {doctors.length > 0 && (
               <tr>
@@ -2363,7 +2487,7 @@ function MessageThread({ code, viewerRole, doctorProfile }) {
                   style={{
                     maxWidth: '80%', padding: '8px 12px', borderRadius: 14,
                     background: mine ? C.teal : C.paperSoft,
-                    color: mine ? C.paper : C.ink,
+                    color: mine ? C.onAccentLight : C.ink,
                     fontFamily: SANS, fontSize: 14, lineHeight: 1.4,
                   }}
                 >
@@ -2392,7 +2516,7 @@ function MessageThread({ code, viewerRole, doctorProfile }) {
         <button
           onClick={send}
           disabled={sending || !text.trim()}
-          style={{ ...iconBtn, width: 46, background: C.teal, color: C.paper, opacity: sending || !text.trim() ? 0.5 : 1 }}
+          style={{ ...iconBtn, width: 46, background: C.teal, color: C.onAccentLight, opacity: sending || !text.trim() ? 0.5 : 1 }}
         >
           <Send size={18} />
         </button>
@@ -2418,6 +2542,8 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
   const [eDx, setEDx] = useState('');
   const [ePhone, setEPhone] = useState('');
   const [eYear, setEYear] = useState('');
+  const [eAllergies, setEAllergies] = useState('');
+  const [eChronic, setEChronic] = useState('');
   const [showAudit, setShowAudit] = useState(false);
   const [audit, setAudit] = useState(null);
   const [quickMode, setQuickMode] = useState(false);
@@ -2434,7 +2560,7 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
       const doctorsList = (await store.get(`doctors:${code}`, true)) || [];
       const myList = (await store.get(`patients:${doctorId}`, true)) || [];
       setPatient(p);
-      if (p) { setEName(p.name || ''); setEDx(p.diagnosis || ''); setEPhone(p.phone || ''); setEYear(p.birthYear ? String(p.birthYear) : ''); }
+      if (p) { setEName(p.name || ''); setEDx(p.diagnosis || ''); setEPhone(p.phone || ''); setEYear(p.birthYear ? String(p.birthYear) : ''); setEAllergies(p.allergies || ''); setEChronic(p.chronicConditions || ''); }
       setRx(r);
       setTemplates(t);
       setOtherDoctors(doctorsList.filter((d) => d.doctorId !== doctorId));
@@ -2573,14 +2699,15 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
 
   const savePatientInfo = async () => {
     const name = eName.trim(), diagnosis = eDx.trim(), phone = ePhone.trim();
+    const allergies = eAllergies.trim(), chronicConditions = eChronic.trim();
     if (!name || !diagnosis) return onError(t('Ism va tashxis bo\'sh bo\'lmasin.', 'Имя и диагноз не должны быть пустыми.'));
     if (eYear && !validBirthYear(eYear)) return onError(t(`Tug'ilgan yil 1900–${curYear()} oralig'ida bo'lsin (yoki bo'sh qoldiring).`, `Год рождения должен быть в диапазоне 1900–${curYear()} (или оставьте поле пустым).`));
     const birthYear = eYear ? Number(eYear) : null;
     try {
-      const next = { ...patient, name, diagnosis, phone, birthYear };
+      const next = { ...patient, name, diagnosis, phone, birthYear, allergies, chronicConditions };
       await store.set(`patient:${code}`, next, true);
       const list = (await store.get(`patients:${doctorId}`, true)) || [];
-      await store.set(`patients:${doctorId}`, list.map((p) => (p.code === code ? { ...p, name, diagnosis, phone, birthYear } : p)), true);
+      await store.set(`patients:${doctorId}`, list.map((p) => (p.code === code ? { ...p, name, diagnosis, phone, birthYear, allergies, chronicConditions } : p)), true);
       setPatient(next);
       setEditInfo(false);
     } catch (e) {
@@ -2645,6 +2772,16 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
                 </div>
                 <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 2 }}>{t('Tashxis', 'Диагноз')}</div>
                 <div style={{ fontFamily: SERIF, fontSize: 19, color: C.tealDeep, fontWeight: 600 }}>{patient.diagnosis}</div>
+                {patient.chronicConditions && (
+                  <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginTop: 6 }}>
+                    <span style={{ fontWeight: 600 }}>{t('Surunkali kasalliklar', 'Хронические заболевания')}:</span> {patient.chronicConditions}
+                  </div>
+                )}
+                {patient.allergies && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontFamily: SANS, fontSize: 13, color: C.redTintFg, background: C.redTint, borderRadius: 8, padding: '5px 9px', marginTop: 6 }}>
+                    <AlertTriangle size={13} /> <span style={{ fontWeight: 700 }}>{t('Allergiya', 'Аллергия')}:</span> {patient.allergies}
+                  </div>
+                )}
                 {otherDoctors.length > 0 && (
                   <div style={{ fontFamily: SANS, fontSize: 12, color: C.inkSoft, marginTop: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
                     <Users size={13} />
@@ -2660,14 +2797,14 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
                   onClick={toggleFlag}
                   title={flagged ? t("Kuzatuv belgisini olib tashlash", 'Убрать отметку наблюдения') : t("Diqqat talab qiladi deb belgilash", 'Отметить как требующего внимания')}
                   aria-pressed={flagged}
-                  style={{ ...iconBtn, background: flagged ? '#F7E2DF' : C.paperSoft, color: flagged ? C.red : C.ink }}
+                  style={{ ...iconBtn, background: flagged ? C.redTint : C.paperSoft, color: flagged ? C.red : C.ink }}
                 >
                   <ShieldAlert size={16} />
                 </button>
                 <button onClick={() => setShowQr((v) => !v)} title={t('QR-kod', 'QR-код')} style={iconBtn}>
                   <QrCode size={16} />
                 </button>
-                <button onClick={() => { setEName(patient.name); setEDx(patient.diagnosis); setEPhone(patient.phone || ''); setEYear(patient.birthYear ? String(patient.birthYear) : ''); setEditInfo(true); }} title={t('Tahrirlash', 'Редактировать')} style={iconBtn}>
+                <button onClick={() => { setEName(patient.name); setEDx(patient.diagnosis); setEPhone(patient.phone || ''); setEYear(patient.birthYear ? String(patient.birthYear) : ''); setEAllergies(patient.allergies || ''); setEChronic(patient.chronicConditions || ''); setEditInfo(true); }} title={t('Tahrirlash', 'Редактировать')} style={iconBtn}>
                   <Pencil size={16} />
                 </button>
               </div>
@@ -2682,7 +2819,7 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
             )}
           </Card>
         ) : (
-          <Card style={{ marginBottom: 4, border: `1.5px solid ${C.gold}`, background: '#FFFDF7' }}>
+          <Card style={{ marginBottom: 4, border: `1.5px solid ${C.gold}`, background: C.cardAccent }}>
             <div style={{ fontFamily: SERIF, fontSize: 17, color: C.tealDeep, fontWeight: 600, marginBottom: 10 }}>{t("Bemor ma'lumotini tahrirlash", 'Редактировать данные пациента')}</div>
             <Field label={t('Bemor ismi', 'Имя пациента')}>
               <input style={inputStyle} value={eName} onChange={(e) => setEName(e.target.value)} placeholder={t('Ism familiya', 'Имя и фамилия')} />
@@ -2700,6 +2837,12 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
                 </Field>
               </div>
             </div>
+            <Field label={t('Allergiyalar', 'Аллергии')} hint={t('Ixtiyoriy', 'Необязательно')}>
+              <input style={inputStyle} value={eAllergies} onChange={(e) => setEAllergies(e.target.value)} placeholder={t('Masalan: Penitsillin, yong\'oq', 'Например: Пенициллин, орехи')} />
+            </Field>
+            <Field label={t('Surunkali kasalliklar', 'Хронические заболевания')} hint={t('Ixtiyoriy', 'Необязательно')}>
+              <input style={inputStyle} value={eChronic} onChange={(e) => setEChronic(e.target.value)} placeholder={t('Masalan: Qandli diabet, Astma', 'Например: Диабет, Астма')} />
+            </Field>
             <div style={{ display: 'flex', gap: 10 }}>
               <Btn variant="ghost" onClick={() => setEditInfo(false)} style={{ flex: 1 }}>{t('Bekor qilish', 'Отмена')}</Btn>
               <Btn variant="gold" onClick={savePatientInfo} style={{ flex: 1 }}>{t('Saqlash', 'Сохранить')}</Btn>
@@ -2835,7 +2978,7 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
             )}
 
             {tplMode === 'save' && (
-              <Card style={{ marginTop: 10, border: `1.5px solid ${C.gold}`, background: '#FFFDF7' }}>
+              <Card style={{ marginTop: 10, border: `1.5px solid ${C.gold}`, background: C.cardAccent }}>
                 <div style={{ fontFamily: SERIF, fontSize: 17, color: C.tealDeep, fontWeight: 600, marginBottom: 4 }}>{t('Shablon sifatida saqlash', 'Сохранить как шаблон')}</div>
                 <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 10 }}>
                   {t(`Joriy ${(rx.medicines || []).length} ta dori shablonga saqlanadi (bemorga bog'lanmagan holda).`, `Текущие ${(rx.medicines || []).length} лек. будут сохранены в шаблон (без привязки к пациенту).`)}
@@ -2860,7 +3003,7 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
         <SectionTitle icon={<MessageCircle size={18} color={C.teal} />}>{t('Xabarlar', 'Сообщения')}</SectionTitle>
         <MessageThread code={code} viewerRole="doctor" doctorProfile={doctorProfile} />
 
-        <Btn variant="ghost" full onClick={deletePatient} style={{ marginTop: 24, color: C.red, border: '1.5px solid #E7C6C1' }}>
+        <Btn variant="ghost" full onClick={deletePatient} style={{ marginTop: 24, color: C.red, border: `1.5px solid ${C.redBorder}` }}>
           <Trash2 size={16} /> {t("Ro'yxatimdan olib tashlash", 'Удалить из моего списка')}
         </Btn>
       </div>
@@ -2916,8 +3059,10 @@ function MedCard({ med, onEdit, onDelete }) {
   const t = useT();
   const end = medEndDate(med);
   const needsSetup = !med.dosage.trim() || !(med.times || []).length;
+  const stockDaysLeft = medStockDaysLeft(med, todayStr());
+  const stockLow = stockDaysLeft !== null && stockDaysLeft <= 3;
   return (
-    <Card style={needsSetup ? { border: `1.5px solid ${C.gold}`, background: '#FFFDF7' } : undefined}>
+    <Card style={needsSetup ? { border: `1.5px solid ${C.gold}`, background: C.cardAccent } : undefined}>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -2925,7 +3070,7 @@ function MedCard({ med, onEdit, onDelete }) {
             <div style={{ fontFamily: SANS, fontSize: 17, fontWeight: 700, color: C.ink }}>{med.name}</div>
           </div>
           {needsSetup ? (
-            <div style={{ fontFamily: SANS, fontSize: 13, color: '#7A5A12', marginTop: 4, fontWeight: 600 }}>
+            <div style={{ fontFamily: SANS, fontSize: 13, color: C.goldTintFg, marginTop: 4, fontWeight: 600 }}>
               {t('Doza va qabul vaqti hali belgilanmagan', 'Доза и время приёма ещё не назначены')}
             </div>
           ) : (
@@ -2933,7 +3078,7 @@ function MedCard({ med, onEdit, onDelete }) {
               <div style={{ fontFamily: SANS, fontSize: 13.5, color: C.inkSoft, marginTop: 4 }}>{med.dosage}</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
                 {(med.times || []).map((tm) => (
-                  <span key={tm} style={{ fontFamily: SANS, fontSize: 13, fontWeight: 600, color: C.teal, background: '#E9F0F1', padding: '4px 9px', borderRadius: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <span key={tm} style={{ fontFamily: SANS, fontSize: 13, fontWeight: 600, color: C.teal, background: C.tealTint, padding: '4px 9px', borderRadius: 8, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                     <Clock size={13} /> {tm}
                   </span>
                 ))}
@@ -2942,6 +3087,13 @@ function MedCard({ med, onEdit, onDelete }) {
                 {med.durationDays ? `${med.durationDays} ${t('kun', 'дн.')}` : t('Doimiy', 'Постоянно')} · {t('boshlangan', 'начато')}: {med.startDate}
                 {end && ` · ${t('tugaydi', 'заканчивается')}: ${end}`}
               </div>
+              {stockDaysLeft !== null && (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: SANS, fontSize: 12, fontWeight: 600, marginTop: 6, padding: '3px 8px', borderRadius: 8, color: stockLow ? C.redTintFg : C.sageTintFg, background: stockLow ? C.redTint : C.sageTint }}>
+                  <Pill size={12} /> {stockDaysLeft <= 0
+                    ? t('Zaxira tugagan', 'Запас закончился')
+                    : t(`Taxminan ${stockDaysLeft} kunlik zaxira qoldi`, `Осталось запаса примерно на ${stockDaysLeft} дн.`)}
+                </div>
+              )}
               {med.instructions && (
                 <div style={{ fontFamily: SANS, fontSize: 13, color: C.ink, marginTop: 6, fontStyle: 'italic' }}>“{med.instructions}”</div>
               )}
@@ -2963,8 +3115,10 @@ function MedCard({ med, onEdit, onDelete }) {
 }
 
 const iconBtn = {
-  background: C.paperSoft, border: 'none', borderRadius: 9, width: 34, height: 34,
-  display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: C.ink,
+  get background() { return C.paperSoft; },
+  border: 'none', borderRadius: 9, width: 34, height: 34,
+  display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+  get color() { return C.ink; },
 };
 
 /* Dori qo'shish/tahrirlash formasi */
@@ -2976,6 +3130,7 @@ function MedForm({ initial, onCancel, onSave }) {
   const [durationDays, setDurationDays] = useState(initial?.durationDays ? String(initial.durationDays) : '');
   const [startDate, setStartDate] = useState(initial?.startDate || todayStr());
   const [instructions, setInstructions] = useState(initial?.instructions || '');
+  const [stockQty, setStockQty] = useState(initial?.stockQty ? String(initial.stockQty) : '');
   const [err, setErr] = useState(null);
 
   const setTime = (i, v) => setTimes((ts) => ts.map((t, j) => (j === i ? v : t)));
@@ -2989,6 +3144,14 @@ function MedForm({ initial, onCancel, onSave }) {
     if (cleanTimes.length === 0) return setErr(t('Kamida bitta qabul vaqtini qo\'shing.', 'Добавьте хотя бы одно время приёма.'));
     if (durationDays && (isNaN(Number(durationDays)) || Number(durationDays) < 1))
       return setErr(t('Davomiylik butun kun bo\'lishi kerak yoki bo\'sh qoldiring (doimiy).', 'Длительность должна быть целым числом дней или оставьте пустым (постоянно).'));
+    if (stockQty && (isNaN(Number(stockQty)) || Number(stockQty) < 1))
+      return setErr(t('Zaxira miqdori butun son bo\'lishi kerak yoki bo\'sh qoldiring.', 'Количество запаса должно быть целым числом или оставьте пустым.'));
+    // Zaxira miqdori haqiqatan O'ZGARGANDA GINA "hisoblash boshlanish sanasi"
+    // bugungi kunga qaytariladi — aks holda oddiy tahrirlash (masalan
+    // ko'rsatmani o'zgartirish) zaxira hisobini nooqilona qayta boshlab
+    // yuborardi.
+    const newStockQty = stockQty ? Number(stockQty) : null;
+    const stockChanged = newStockQty !== (initial?.stockQty ?? null);
     onSave({
       id: initial?.id || uid(),
       name: name.trim(),
@@ -2997,11 +3160,13 @@ function MedForm({ initial, onCancel, onSave }) {
       durationDays: durationDays ? Number(durationDays) : null,
       startDate,
       instructions: instructions.trim(),
+      stockQty: newStockQty,
+      stockSetAt: newStockQty ? (stockChanged ? todayStr() : (initial?.stockSetAt || todayStr())) : null,
     });
   };
 
   return (
-    <Card style={{ marginTop: 12, border: `1.5px solid ${C.gold}`, background: '#FFFDF7' }}>
+    <Card style={{ marginTop: 12, border: `1.5px solid ${C.gold}`, background: C.cardAccent }}>
       <div style={{ fontFamily: SERIF, fontSize: 18, color: C.tealDeep, fontWeight: 600, marginBottom: 12 }}>
         {initial ? t('Dorini tahrirlash', 'Редактировать лекарство') : t('Yangi dori', 'Новое лекарство')}
       </div>
@@ -3047,6 +3212,10 @@ function MedForm({ initial, onCancel, onSave }) {
         <input style={inputStyle} value={instructions} onChange={(e) => setInstructions(e.target.value)} placeholder={t('Masalan: ovqatdan keyin, suv bilan', 'Например: после еды, запивая водой')} />
       </Field>
 
+      <Field label={t('Zaxira miqdori', 'Количество в запасе')} hint={t("Ixtiyoriy — nechta doza/tabletka berilgan (masalan quti hajmi). Tugashiga yaqin bemorga ogohlantirish chiqadi.", 'Необязательно — сколько доз/таблеток выдано (например объём упаковки). Пациент получит предупреждение, когда запас подходит к концу.')}>
+        <input style={inputStyle} value={stockQty} onChange={(e) => setStockQty(e.target.value.replace(/[^0-9]/g, ''))} placeholder={t('Masalan: 30', 'Например: 30')} inputMode="numeric" />
+      </Field>
+
       <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
         <Btn variant="ghost" onClick={onCancel} style={{ flex: 1 }}>{t('Bekor qilish', 'Отмена')}</Btn>
         <Btn variant="gold" onClick={save} style={{ flex: 1 }}>{t('Saqlash', 'Сохранить')}</Btn>
@@ -3084,7 +3253,7 @@ function QuickRxForm({ onCancel, onSave }) {
   };
 
   return (
-    <Card style={{ marginTop: 12, border: `1.5px solid ${C.gold}`, background: '#FFFDF7' }}>
+    <Card style={{ marginTop: 12, border: `1.5px solid ${C.gold}`, background: C.cardAccent }}>
       <div style={{ fontFamily: SERIF, fontSize: 18, color: C.tealDeep, fontWeight: 600, marginBottom: 4 }}>{t('Umumiy retsept', 'Общий рецепт')}</div>
       <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 12, lineHeight: 1.5 }}>
         {t(
@@ -3210,6 +3379,11 @@ function PharmacyApp({ onBack, onError }) {
             <Card style={{ marginBottom: 12 }}>
               <div style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginBottom: 2 }}>{t('Bemor', 'Пациент')}</div>
               <div style={{ fontFamily: SERIF, fontSize: 19, color: C.tealDeep, fontWeight: 600 }}>{result.patient.name}</div>
+              {result.patient.allergies && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontFamily: SANS, fontSize: 13, fontWeight: 700, color: C.redTintFg, background: C.redTint, borderRadius: 8, padding: '5px 9px', marginTop: 6 }}>
+                  <AlertTriangle size={13} /> {t('Allergiya', 'Аллергия')}: {result.patient.allergies}
+                </div>
+              )}
               {result.doctors.length > 0 ? (
                 result.doctors.map((d, i) => (
                   <div key={d.doctorId || i} style={{ fontFamily: SANS, fontSize: 13, color: C.inkSoft, marginTop: i === 0 ? 6 : 3, display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -3309,7 +3483,7 @@ function PatientLogin({ onLogin, onBack, onError, initialCode }) {
         <ArrowLeft size={20} />
       </button>
 
-      <div style={{ width: 60, height: 60, borderRadius: 16, background: '#FBF1D6', color: '#7A5A12', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+      <div style={{ width: 60, height: 60, borderRadius: 16, background: C.goldTint, color: C.goldTintFg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
         <User size={30} />
       </div>
       <h1 style={{ fontFamily: SERIF, fontSize: 28, color: C.tealDeep, margin: '0 0 6px', fontWeight: 600 }}>{t('Xush kelibsiz', 'Добро пожаловать')}</h1>
@@ -3373,7 +3547,7 @@ function PatientTabBar({ tab, setTab }) {
               padding: '10px 6px', borderRadius: 12, cursor: 'pointer',
               border: `1.5px solid ${active ? C.teal : C.line}`,
               background: active ? C.teal : C.white,
-              color: active ? C.paper : C.ink,
+              color: active ? C.onAccentLight : C.ink,
               fontFamily: SANS, fontSize: 13, fontWeight: 700,
             }}
           >
@@ -3629,6 +3803,11 @@ function PatientApp({ code, onLogout, onError }) {
     .map((m) => ({ m, end: medEndDate(m) }))
     .filter((x) => x.end && (x.end === day || x.end === addDays(day, 1)));
 
+  // Zaxira tugayotgan dorilar (taxminiy, shifokor kiritgan miqdorga asosan)
+  const lowStock = activeMeds
+    .map((m) => ({ m, daysLeft: medStockDaysLeft(m, day) }))
+    .filter((x) => x.daysLeft !== null && x.daysLeft <= 3);
+
   if (loading) return <div style={{ padding: 30, textAlign: 'center', color: C.inkSoft }}>{t('Yuklanmoqda…', 'Загрузка…')}</div>;
   if (!patient)
     return (
@@ -3718,6 +3897,19 @@ function PatientApp({ code, onLogout, onError }) {
           </Banner>
         )}
 
+        {/* Dori zaxirasi tugayotgani haqida ogohlantirish (taxminiy) */}
+        {lowStock.length > 0 && (
+          <Banner type="warn" icon={<Pill size={18} />} title={t('Dori zaxirasi tugayapti', 'Запас лекарства заканчивается')}>
+            {lowStock.map(({ m, daysLeft }) => (
+              <div key={m.id}>
+                <b>{m.name}</b> — {daysLeft <= 0
+                  ? t('zaxira tugagan bo\'lishi mumkin. Dorixonadan yangisini oling.', 'запас, возможно, закончился. Приобретите новый в аптеке.')
+                  : t(`taxminan ${daysLeft} kunlik zaxira qoldi. Dorixonaga oldindan boring.`, `осталось примерно на ${daysLeft} дн. Заранее посетите аптеку.`)}
+              </div>
+            ))}
+          </Banner>
+        )}
+
         <PatientTabBar tab={tab} setTab={setTab} />
 
         {tab === 'today' && (
@@ -3784,9 +3976,19 @@ function PatientApp({ code, onLogout, onError }) {
         {tab === 'info' && (
           <>
             {/* Tashxis */}
-            <Card style={{ background: C.teal, border: 'none', color: C.paper, marginBottom: 4 }}>
+            <Card style={{ background: C.teal, border: 'none', color: C.onAccentLight, marginBottom: 4 }}>
               <div style={{ fontFamily: SANS, fontSize: 13, opacity: 0.8 }}>{t('Tashxisingiz', 'Ваш диагноз')}</div>
               <div style={{ fontFamily: SERIF, fontSize: 20, fontWeight: 600, color: C.gold, marginTop: 2 }}>{patient.diagnosis}</div>
+              {patient.chronicConditions && (
+                <div style={{ fontFamily: SANS, fontSize: 12.5, opacity: 0.85, marginTop: 6 }}>
+                  <span style={{ fontWeight: 600 }}>{t('Surunkali kasalliklar', 'Хронические заболевания')}:</span> {patient.chronicConditions}
+                </div>
+              )}
+              {patient.allergies && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontFamily: SANS, fontSize: 12.5, marginTop: 6 }}>
+                  <AlertTriangle size={13} color={C.gold} /> <span style={{ fontWeight: 700 }}>{t('Allergiya', 'Аллергия')}:</span> {patient.allergies}
+                </div>
+              )}
               {doctors.length > 0 && (
                 <div style={{ marginTop: 8 }}>
                   {doctors.map((d, i) => (
@@ -3860,10 +4062,10 @@ function DoseCard({ dose, onTake, onUndo }) {
   const t = useT();
   const { med, time, status } = dose;
   const cfg = {
-    taken: { bg: '#EEF4EB', bd: C.sage, label: t('Qabul qilindi', 'Принято'), fg: '#3E5637' },
-    due: { bg: '#FBF1D6', bd: C.gold, label: t('Hozir vaqti!', 'Сейчас время!'), fg: '#7A5A12' },
+    taken: { bg: C.sageTint, bd: C.sage, label: t('Qabul qilindi', 'Принято'), fg: C.sageTintFg },
+    due: { bg: C.goldTint, bd: C.gold, label: t('Hozir vaqti!', 'Сейчас время!'), fg: C.goldTintFg },
     upcoming: { bg: C.white, bd: C.line, label: t('Kutilmoqda', 'Ожидается'), fg: C.inkSoft },
-    missed: { bg: '#F9E9E6', bd: C.red, label: t("O'tkazib yuborilgan", 'Пропущено'), fg: '#7E2F27' },
+    missed: { bg: C.redTint, bd: C.red, label: t("O'tkazib yuborilgan", 'Пропущено'), fg: C.redTintFg },
   }[status];
 
   return (
@@ -3879,14 +4081,14 @@ function DoseCard({ dose, onTake, onUndo }) {
           {med.instructions && <div style={{ fontFamily: SANS, fontSize: 12.5, color: C.ink, marginTop: 3, fontStyle: 'italic' }}>{med.instructions}</div>}
         </div>
         {status === 'taken' ? (
-          <button onClick={onUndo} title={t('Bekor qilish', 'Отменить')} style={{ background: C.sage, border: 'none', borderRadius: 12, width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: C.white, flexShrink: 0 }}>
+          <button onClick={onUndo} title={t('Bekor qilish', 'Отменить')} style={{ background: C.sage, border: 'none', borderRadius: 12, width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: C.onAccentLight, flexShrink: 0 }}>
             <Check size={26} />
           </button>
         ) : (
           <button
             onClick={onTake}
             title={t('Qabul qilindi deb belgilash', 'Отметить как принято')}
-            style={{ background: status === 'missed' ? C.white : C.teal, border: status === 'missed' ? `2px solid ${C.red}` : 'none', borderRadius: 12, width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: status === 'missed' ? C.red : C.paper, flexShrink: 0 }}
+            style={{ background: status === 'missed' ? C.white : C.teal, border: status === 'missed' ? `2px solid ${C.red}` : 'none', borderRadius: 12, width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: status === 'missed' ? C.red : C.onAccentLight, flexShrink: 0 }}
           >
             <Check size={26} />
           </button>
