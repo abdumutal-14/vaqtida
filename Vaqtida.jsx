@@ -6,7 +6,7 @@ import {
   Store, Search, BadgeCheck, XCircle, IdCard, History, KeyRound, ShieldCheck, RefreshCw, Globe, WifiOff, Link2, QrCode, Ban, HelpCircle,
   Send, MessageCircle,
 } from 'lucide-react';
-import { store, hasBackend, auth, adminCreateDoctor, adminListDoctors, adminResetDoctorPassword, adminSetDoctorBlocked, offlineQueue } from './db.js';
+import { store, hasBackend, auth, adminCreateDoctor, adminListDoctors, adminResetDoctorPassword, adminSetDoctorBlocked, offlineQueue, notifyNewMessage } from './db.js';
 import { pushSupported, subscribeToPush, unsubscribeFromPush, getPushState } from './push.js';
 import QRCode from 'qrcode';
 
@@ -2193,6 +2193,7 @@ function MessageThread({ code, viewerRole, doctorProfile }) {
       await store.set(`messages:${code}`, next, true);
       setMessages(next);
       setText('');
+      notifyNewMessage({ code, from: viewerRole, text: trimmed, doctorName: entry.doctorName });
     } catch (e) {
       // xato bo'lsa ham matn saqlanib qoladi — foydalanuvchi qayta yuborishi mumkin
     } finally {

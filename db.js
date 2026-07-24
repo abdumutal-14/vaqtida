@@ -212,3 +212,18 @@ export async function adminResetDoctorPassword(adminSecret, uid, newPassword) {
 export async function adminSetDoctorBlocked(adminSecret, uid, blocked) {
   return adminCall(adminSecret, { action: 'set-blocked', uid, blocked });
 }
+
+/* Yangi xabar yozilganda qarama-qarshi tomonga (push yoqilgan bo'lsa)
+   darhol bildirishnoma yuborilishini so'raydi. Bu — qulaylik uchun,
+   xabarning o'zi bundan oldin allaqachon saqlangan bo'lishi kerak —
+   shu sabab xato bo'lsa ham jimgina o'tkazib yuboriladi. */
+export async function notifyNewMessage({ code, from, text, doctorName }) {
+  if (!hasBackend) return;
+  try {
+    await fetch(`${URL}/functions/v1/send-message-notification`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, from, text, doctorName }),
+    });
+  } catch (e) { /* bildirishnoma yetib bormasa ham xabar saqlangan */ }
+}
