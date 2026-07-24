@@ -1458,7 +1458,7 @@ function DoctorApp({ doctorId, email, doctorProfile, onLogout, onError }) {
           const s = await computeStats(p.code);
           todayTaken += s.takenToday;
           todayTotal += s.totalToday;
-          if (s.missed3 >= 3) dangerCodes.push(p.code);
+          if (s.missed3 >= 3 || p.flagged) dangerCodes.push(p.code);
           const w = await computeWeek(p.code);
           for (const d of w.days) { weekTaken += d.taken; weekTotal += d.total; }
         } catch (e) { /* bitta bemorda xato bo'lsa ham davom etamiz */ }
@@ -1983,7 +1983,7 @@ function PatientRow({ patient, tick, onOpen, onError }) {
     return () => { cancelled = true; };
   }, [patient.code, tick, onError, t]);
 
-  const danger = stats && stats.missed3 >= 3;
+  const danger = (stats && stats.missed3 >= 3) || patient.flagged;
 
   return (
     <Card onClick={onOpen} style={{ display: 'flex', alignItems: 'center', gap: 12, border: `1px solid ${danger ? C.red : C.line}` }}>
@@ -2002,7 +2002,8 @@ function PatientRow({ patient, tick, onOpen, onError }) {
         {stats && (
           <div style={{ display: 'flex', gap: 10, marginTop: 5, flexWrap: 'wrap' }}>
             <Pill_ text={`${t('Bugun', 'Сегодня')}: ${stats.takenToday}/${stats.totalToday}`} color={C.teal} />
-            {danger && <Pill_ text={t(`3 kunda ${stats.missed3} o'tkazib yuborilgan`, `Пропущено за 3 дня: ${stats.missed3}`)} color={C.red} />}
+            {stats.missed3 >= 3 && <Pill_ text={t(`3 kunda ${stats.missed3} o'tkazib yuborilgan`, `Пропущено за 3 дня: ${stats.missed3}`)} color={C.red} />}
+            {patient.flagged && <Pill_ text={t('Kuzatuvda', 'Под наблюдением')} color={C.red} />}
           </div>
         )}
       </div>
@@ -2277,6 +2278,7 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
   const [quickMode, setQuickMode] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [otherDoctors, setOtherDoctors] = useState([]);
+  const [flagged, setFlagged] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -2284,11 +2286,13 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
       const r = (await store.get(`rx:${code}`, true)) || { medicines: [] };
       const t = (await store.get(`templates:${doctorId}`, true)) || [];
       const doctorsList = (await store.get(`doctors:${code}`, true)) || [];
+      const myList = (await store.get(`patients:${doctorId}`, true)) || [];
       setPatient(p);
       if (p) { setEName(p.name || ''); setEDx(p.diagnosis || ''); setEPhone(p.phone || ''); setEYear(p.birthYear ? String(p.birthYear) : ''); }
       setRx(r);
       setTemplates(t);
       setOtherDoctors(doctorsList.filter((d) => d.doctorId !== doctorId));
+      setFlagged(Boolean(myList.find((mp) => mp.code === code)?.flagged));
       setStats(await computeStats(code));
     } catch (e) {
       onError(t("Bemor ma'lumotini yuklab bo'lmadi.", 'Не удалось загрузить данные пациента.'));
@@ -2304,10 +2308,25 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
     const off = store.subscribe((payload) => {
       const key = payload?.new?.key || payload?.old?.key;
       if (!key) return;
-      if (key === `patient:${code}` || key === `rx:${code}` || key === `doctors:${code}` || key.startsWith(`log:${code}:`)) load();
+      if (key === `patient:${code}` || key === `rx:${code}` || key === `doctors:${code}` || key === `patients:${doctorId}` || key.startsWith(`log:${code}:`)) load();
     });
     return off;
-  }, [code, load]);
+  }, [code, doctorId, load]);
+
+  /* Diqqat talab qiladi deb qo'lda belgilash — FAQAT shu shifokorning
+     o'z ro'yxatida (patients:{doctorId}, owner=doctorId) saqlanadi, shu
+     sabab boshqa shifokorlarga yoki bemorga ko'rinmaydi. */
+  const toggleFlag = async () => {
+    const next = !flagged;
+    setFlagged(next); // optimistik
+    try {
+      const myList = (await store.get(`patients:${doctorId}`, true)) || [];
+      await store.set(`patients:${doctorId}`, myList.map((p) => (p.code === code ? { ...p, flagged: next } : p)), true);
+    } catch (e) {
+      setFlagged(!next);
+      onError(t("Belgini o'zgartirib bo'lmadi.", 'Не удалось изменить отметку.'));
+    }
+  };
 
   const saveRx = async (medicines, action = 'updated') => {
     try {
@@ -2454,7 +2473,7 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
     </div>
   );
 
-  const danger = stats && stats.missed3 >= 3;
+  const danger = (stats && stats.missed3 >= 3) || flagged;
 
   return (
     <div>
@@ -2491,6 +2510,14 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
                 )}
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <button
+                  onClick={toggleFlag}
+                  title={flagged ? t("Kuzatuv belgisini olib tashlash", 'Убрать отметку наблюдения') : t("Diqqat talab qiladi deb belgilash", 'Отметить как требующего внимания')}
+                  aria-pressed={flagged}
+                  style={{ ...iconBtn, background: flagged ? '#F7E2DF' : C.paperSoft, color: flagged ? C.red : C.ink }}
+                >
+                  <ShieldAlert size={16} />
+                </button>
                 <button onClick={() => setShowQr((v) => !v)} title={t('QR-kod', 'QR-код')} style={iconBtn}>
                   <QrCode size={16} />
                 </button>
@@ -2537,7 +2564,12 @@ function DoctorPatient({ doctorId, doctorProfile, code, onBack, onError, onDelet
         {danger && (
           <div style={{ marginTop: 12 }}>
             <Banner type="error" icon={<ShieldAlert size={18} />} title={t('Diqqat talab qiladi', 'Требует внимания')}>
-              {t(`Bemor so'nggi 3 kunda ${stats.missed3} ta dozani o'tkazib yubordi. Bog'lanib holatini so'rang.`, `Пациент пропустил ${stats.missed3} доз(ы) за последние 3 дня. Свяжитесь и уточните состояние.`)}
+              {stats && stats.missed3 >= 3 && (
+                <div>{t(`Bemor so'nggi 3 kunda ${stats.missed3} ta dozani o'tkazib yubordi. Bog'lanib holatini so'rang.`, `Пациент пропустил ${stats.missed3} доз(ы) за последние 3 дня. Свяжитесь и уточните состояние.`)}</div>
+              )}
+              {flagged && (
+                <div style={{ marginTop: stats && stats.missed3 >= 3 ? 4 : 0 }}>{t("Siz bu bemorni qo'lda kuzatuvga belgilagansiz (faqat sizga ko'rinadi).", 'Вы вручную отметили этого пациента для наблюдения (видно только вам).')}</div>
+              )}
             </Banner>
           </div>
         )}
