@@ -197,6 +197,59 @@ async function setBlocked(body: any) {
   return json({ ok: true, blocked });
 }
 
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const dateStr = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+
+async function getStats() {
+  // Shifokorlar: GoTrue foydalanuvchilar ro'yxatidan (oxirgi kirish vaqti
+  // ham shu yerda bor — alohida "so'nggi faollik" kuzatuvi shart emas).
+  const usersRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?per_page=1000`, { headers: adminH });
+  const usersData = await usersRes.json();
+  const users: any[] = Array.isArray(usersData?.users) ? usersData.users : [];
+
+  const profilesRes = await fetch(`${SUPABASE_URL}/rest/v1/kv_store?key=like.doctor:*&select=key`, { headers: adminH });
+  const profileRows = await profilesRes.json().catch(() => []);
+  const doctorUids = new Set(profileRows.map((r: any) => r.key.slice('doctor:'.length)));
+
+  const now = Date.now();
+  const THIRTY_D = 30 * 24 * 60 * 60 * 1000;
+  let doctorsTotal = 0, doctorsActive = 0, doctorsBlocked = 0;
+  for (const u of users) {
+    if (!doctorUids.has(u.id)) continue;
+    doctorsTotal++;
+    const bannedUntil = u.banned_until ? new Date(u.banned_until).getTime() : 0;
+    if (bannedUntil > now) doctorsBlocked++;
+    const lastSignIn = u.last_sign_in_at ? new Date(u.last_sign_in_at).getTime() : 0;
+    if (lastSignIn && now - lastSignIn < THIRTY_D) doctorsActive++;
+  }
+
+  // Bemorlar: jami — "patient:{code}" kalitlari soni.
+  const patientsRes = await fetch(`${SUPABASE_URL}/rest/v1/kv_store?key=like.patient:*&select=key`, { headers: adminH });
+  const patientRows = await patientsRes.json().catch(() => []);
+  const patientsTotal = patientRows.length;
+
+  // Faol bemorlar: so'nggi 3 kunda kamida bitta doza belgilagan (log:{code}:{date}).
+  const activeCodes = new Set<string>();
+  for (let i = 0; i < 3; i++) {
+    const d = new Date(now - i * 24 * 60 * 60 * 1000);
+    const ds = dateStr(d);
+    const logRes = await fetch(`${SUPABASE_URL}/rest/v1/kv_store?key=like.log:*:${ds}&select=key,value`, { headers: adminH });
+    const logRows = await logRes.json().catch(() => []);
+    for (const row of logRows) {
+      if (Array.isArray(row.value) && row.value.length > 0) {
+        const parts = row.key.split(':');
+        if (parts[1]) activeCodes.add(parts[1]);
+      }
+    }
+  }
+
+  return json({
+    ok: true,
+    doctors: { total: doctorsTotal, active: doctorsActive, blocked: doctorsBlocked },
+    patients: { total: patientsTotal, active3d: activeCodes.size },
+  });
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
@@ -226,6 +279,7 @@ Deno.serve(async (req) => {
     case 'list': return listDoctors();
     case 'reset-password': return resetPassword(body);
     case 'set-blocked': return setBlocked(body);
+    case 'stats': return getStats();
     default: return json({ error: "Noma'lum amal." }, 400);
   }
 });

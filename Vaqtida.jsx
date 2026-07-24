@@ -6,7 +6,7 @@ import {
   Store, Search, BadgeCheck, XCircle, IdCard, History, KeyRound, ShieldCheck, RefreshCw, Globe, WifiOff, Link2, QrCode, Ban, HelpCircle,
   Send, MessageCircle,
 } from 'lucide-react';
-import { store, hasBackend, auth, adminCreateDoctor, adminListDoctors, adminResetDoctorPassword, adminSetDoctorBlocked, offlineQueue, notifyNewMessage } from './db.js';
+import { store, hasBackend, auth, adminCreateDoctor, adminListDoctors, adminResetDoctorPassword, adminSetDoctorBlocked, adminGetStats, offlineQueue, notifyNewMessage } from './db.js';
 import { pushSupported, subscribeToPush, unsubscribeFromPush, getPushState } from './push.js';
 import QRCode from 'qrcode';
 
@@ -985,6 +985,7 @@ function AdminCreateDoctor({ onBack, onError }) {
   const [listBusy, setListBusy] = useState(false);
   const [rowBusyUid, setRowBusyUid] = useState(null);
   const [resetResult, setResetResult] = useState(null);
+  const [stats, setStats] = useState(null);
 
   const genPw = () => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
@@ -999,9 +1000,13 @@ function AdminCreateDoctor({ onBack, onError }) {
     setErr(null);
     setListBusy(true);
     try {
-      const list = await adminListDoctors(secret.trim());
+      const [list, statsData] = await Promise.all([
+        adminListDoctors(secret.trim()),
+        adminGetStats(secret.trim()),
+      ]);
       sessionStorage.setItem('vaqtida_admin_secret', secret.trim());
       setDoctors(list);
+      setStats(statsData);
     } catch (e) {
       setErr(e.message || t("Ro'yxatni yuklab bo'lmadi.", 'Не удалось загрузить список.'));
     } finally {
@@ -1162,6 +1167,21 @@ function AdminCreateDoctor({ onBack, onError }) {
       <Btn variant="primary" full onClick={submit} disabled={busy} style={{ marginTop: 4 }}>
         {busy ? t('Kutilmoqda…', 'Подождите…') : t('Hisob yaratish', 'Создать аккаунт')}
       </Btn>
+
+      {stats && (
+        <div style={{ marginTop: 36, paddingTop: 24, borderTop: `1px solid ${C.line}` }}>
+          <div style={{ fontFamily: SERIF, fontSize: 20, color: C.tealDeep, fontWeight: 600, marginBottom: 12 }}>
+            {t('Statistika', 'Статистика')}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <StatBox label={t('Jami shifokorlar', 'Всего врачей')} value={stats.doctors.total} color={C.teal} />
+            <StatBox label={t('30 kunda faol shifokorlar', 'Активные врачи за 30 дней')} value={stats.doctors.active} color={C.sage} />
+            <StatBox label={t('Bloklangan shifokorlar', 'Заблокированные врачи')} value={stats.doctors.blocked} color={C.red} />
+            <StatBox label={t('Jami bemorlar', 'Всего пациентов')} value={stats.patients.total} color={C.teal} />
+            <StatBox label={t('3 kunda faol bemorlar', 'Активные пациенты за 3 дня')} value={stats.patients.active3d} color={C.sage} />
+          </div>
+        </div>
+      )}
 
       <div style={{ marginTop: 36, paddingTop: 24, borderTop: `1px solid ${C.line}` }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>

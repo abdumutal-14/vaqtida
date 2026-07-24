@@ -213,6 +213,10 @@ export async function adminSetDoctorBlocked(adminSecret, uid, blocked) {
   return adminCall(adminSecret, { action: 'set-blocked', uid, blocked });
 }
 
+export async function adminGetStats(adminSecret) {
+  return adminCall(adminSecret, { action: 'stats' });
+}
+
 /* Yangi xabar yozilganda qarama-qarshi tomonga (push yoqilgan bo'lsa)
    darhol bildirishnoma yuborilishini so'raydi. Bu — qulaylik uchun,
    xabarning o'zi bundan oldin allaqachon saqlangan bo'lishi kerak —
